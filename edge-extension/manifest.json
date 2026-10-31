@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "新龙图 · 多多招财只读助手",
+  "version": "0.12.1",
+  "description": "在日常 Edge 侧栏中读取当前多多招财页面的可见指标，不修改推广、不读取 Cookie。",
+  "permissions": [
+    "sidePanel",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://mms.pinduoduo.com/*",
+    "https://yingxiao.pinduoduo.com/*"
+  ],
+  "action": {
+    "default_title": "打开新龙图侧栏"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
+}
