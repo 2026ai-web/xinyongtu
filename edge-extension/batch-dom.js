@@ -24,14 +24,29 @@ export function batchReportDocument(command={action:'read'}){
  }
  const datedInputs=[...document.querySelectorAll('input')].filter(e=>e.type!=='password'&&shown(e)&&/^20\d{2}[/-]\d{1,2}[/-]\d{1,2}/.test(e.value));
  const dateValues=inputs=>inputs.flatMap(e=>[...e.value.matchAll(/20\d{2}[/-]\d{1,2}[/-]\d{1,2}/g)].map(m=>m[0].replace(/\//g,'-').split('-').map((s,i)=>i?s.padStart(2,'0'):s).join('-')));
- const primaryCandidates=[];
- for(const input of datedInputs){let p=input.parentElement;for(let n=0;p&&p!==document.body&&n<9;n++,p=p.parentElement){const s=norm(text(p));const inputs=datedInputs.filter(e=>p.contains(e));if(s.length>1500)break;if(inputs.length<=4&&['今日','昨日','近7','近30','近90'].filter(x=>s.includes(x)).length>=3){primaryCandidates.push({inputs,values:dateValues(inputs)});break;}}}
- const primary=primaryCandidates[0]||null,dates=primary?[...new Set(primary.values)]:[];
+ // Classify each control locally: comparison inputs must never poison the
+ // statistics date, and a URL date alone cannot verify rendered data.
+ const dateEvidence=datedInputs.map(input=>{
+  const hint=[input.getAttribute('aria-label'),input.name,input.placeholder].filter(Boolean).join(' ');
+  let role=/对比|compare|comparison/i.test(hint)?'comparison':/豁免|exempt/i.test(hint)?'auxiliary':/统计日期|推广日期|statistic|promotion.?date/i.test(hint)?'primary':'unknown';
+  let source=role==='unknown'?'unclassified':'control-label';
+  if(role==='unknown')for(let p=input.parentElement,n=0;p&&p!==document.body&&n<9;n++,p=p.parentElement){
+   const local=norm(text(p)),inputs=datedInputs.filter(e=>p.contains(e));if(local.length>1500)break;
+   if(inputs.length<=2&&/对比日期|对比时间/.test(local)&&!['今日','昨日','近7','近30','近90'].some(x=>local.includes(x))){role='comparison';source='comparison-group';break;}
+   if(inputs.length<=2&&/豁免/.test(local)){role='auxiliary';source='auxiliary-group';break;}
+   if(inputs.length<=2&&(['今日','昨日','近7','近30','近90'].filter(x=>local.includes(x)).length>=3||/统计日期|推广日期/.test(local))){role='primary';source='statistics-group';break;}
+  }
+  return {input,role,source,values:dateValues([input])};
+ });
+ const mainControls=dateEvidence.filter(e=>e.role==='primary');
+ const primary=mainControls.length?{inputs:mainControls.map(e=>e.input),values:mainControls.flatMap(e=>e.values)}:null;
+ const dates=primary?[...new Set(primary.values)].sort():[];
+ const primaryVerified=Boolean(primary)&&dates.length<=2&&dates.every(day)&&mainControls.every(e=>e.values.length>0)&&dates.length>0;
  const url=new URL(location.href),adId=url.searchParams.get('adId'),ids=[...new Set([...(document.body.innerText||'').matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];
  const modeNames=['全部','稳定成本推广','全店托管'];
  // Build one small label index per invocation, never rescan the document per row/column.
  const labelIndex=new Map();
- const wantedLabels=new Set(['全部','稳定成本推广','全店托管','表格','查看详情','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量']);
+ const wantedLabels=new Set(['全部','稳定成本推广','全店托管','表格','查看详情','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量','点击率','点击转化率']);
  for(const e of document.querySelectorAll('button,a,span,div,[role="button"],[role="tab"]')){
   const raw=e.textContent||'';if(raw.length>80)continue;const label=norm(raw);if(!wantedLabels.has(label)||!shown(e)||norm(text(e))!==label)continue;
   if([...e.children].some(c=>norm(c.textContent)===label&&shown(c)))continue;
@@ -44,15 +59,15 @@ export function batchReportDocument(command={action:'read'}){
  for(const name of modeNames)for(const e of exactElements(name))if(modeGroups.some(g=>g.p.contains(e))){let p=e;for(let n=0;p&&n<3;n++,p=p.parentElement){if(p===modeGroups.find(g=>g.p.contains(e))?.p)break;if(p.getAttribute('aria-selected')==='true'||/(?:^|[\s_-])(active|selected)(?:$|[\s_-])/i.test(String(p.className))){selectedMode=name;break;}}
   if(!selectedMode){const rgb=getComputedStyle(e).color.match(/\d+/g)?.slice(0,3).map(Number);if(rgb&&rgb[2]-rgb[0]>70&&rgb[2]-rgb[1]>50)selectedMode=name;}
  }
- const columns=['成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量'];
- const value=(s,label)=>{s=String(s||'').trim();if(/^[-—–]$/.test(s))return {current:null,state:'not-provided'};const m=/^[¥￥]?(-?\d[\d,]*(?:\.\d+)?)(?:\s*(万|亿))?(\s*%)?/.exec(s);if(!m)return {current:null,state:'missing'};if(m[3])return {current:null,state:'wrong-unit'};if(/投产比/.test(label)&&m[2])return {current:null,state:'wrong-unit'};return {current:m[1]+(m[2]||''),state:m[2]?'abbreviated':'exact'};};
+ const columns=['点击率','点击转化率','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量'];
+ const value=(s,label)=>{s=String(s||'').trim();if(/^[-—–]$/.test(s))return {current:null,state:'not-provided'};const m=/^[¥￥]?(-?\d[\d,]*(?:\.\d+)?)(?:\s*(万|亿))?(\s*%)?/.exec(s);if(!m)return {current:null,state:'missing'};if(m[3])return /率$/.test(label)?{current:m[1]+'%',state:'exact'}:{current:null,state:'wrong-unit'};if(/投产比/.test(label)&&m[2])return {current:null,state:'wrong-unit'};return {current:m[1]+(m[2]||''),state:m[2]?'abbreviated':'exact'};};
  const rowSelector='tr,[role="row"],[class*="table-row"],[class*="TableRow"]';
  const rows=[...document.querySelectorAll(rowSelector)].filter(shown);
  const headerGroups=[];
  for(const e of document.querySelectorAll('thead tr,[role="row"],[class*="table-header"],[class*="TableHeader"]'))if(shown(e)&&!(/商品\s*ID/.test(text(e)))){
   const cells=[...e.querySelectorAll('th,[role="columnheader"]')].filter(c=>!/(?:^|\s)(?:anq|ant|rc)-table-cell-scrollbar(?:\s|$)/.test(String(c.className)));if(cells.length<2)continue;headerGroups.push({e,cells,labels:cells.map(c=>columns.find(l=>norm(text(c)).replace(/[▲▼↑↓↕]/g,'')===l)||null)});
  }
- const diagnostics={route,dateControlCount:datedInputs.length,primaryDates:dates,selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
+ const diagnostics={route,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
  const computeFieldsFor=row=>{
   const table=row.closest('table,[role="table"],[role="grid"]'),own=table&&headerGroups.find(g=>table.contains(g.e));
   const cells=[...row.children].filter(c=>['TD','TH'].includes(c.tagName)||['cell','gridcell'].includes(c.getAttribute('role')));
@@ -89,9 +104,29 @@ export function batchReportDocument(command={action:'read'}){
  }
  const products=[];for(const row of rows){const matches=[...new Set([...text(row).matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];if(matches.length!==1)continue;const productId=matches[0],s=norm(text(row)),modes=['稳定成本推广','全店托管'].filter(x=>s.includes(x));if(modes.length!==1){diagnostics.missing.push('商品 '+productId+' 的推广模式未唯一识别');continue;}const mode=modes[0];const detail=exactElements('查看详情').filter(e=>row.contains(e));const href=detail.length===1?safeUnitURL(detail[0].closest('a')?.getAttribute('href')||''):null;products.push({productId,mode,adId:href?new URL(href).searchParams.get('adId'):null,unitURL:href,metrics:fieldsFor(row),detailsAvailable:detail.length===1});}
  const hourly=[];for(const row of rows){const raw=text(row),m=/^\s*(\d{1,2}):00\s*[~～至—–-]\s*(\d{1,2}):(00|59)/.exec(raw);if(!m)continue;const hour=Number(m[1]);if(hour>23||!(Number(m[2])===hour+1&&m[3]==='00'||Number(m[2])===hour&&m[3]==='59'))continue;hourly.push({hour,metrics:fieldsFor(row)});}
+ // Read displayed overall cards independently of table/hourly totals.
+ // Accept one current value immediately following a label; do not invent totals.
+ const summary=[];
+ for(const label of columns){
+  const candidates=[];
+  for(const e of exactElements(label)){
+   if(e.closest(rowSelector)||e.closest('thead,[role="columnheader"]'))continue;
+   for(let p=e.parentElement,depth=0;p&&p!==document.body&&depth<4;depth++,p=p.parentElement){
+    const raw=text(p);if(raw.length>350||p.querySelector('table,[role="table"],[role="grid"]'))break;
+    const leaves=[...p.querySelectorAll('*')].filter(n=>!n.children.length&&shown(n)).map(n=>norm(text(n)));
+    const at=leaves.indexOf(label);if(at<0)continue;
+    if(leaves.filter(t=>columns.includes(t)).length!==1)break;
+    const next=leaves[at+1];if(!next)continue;
+    if(!/^[¥￥]?-?\d[\d,]*(?:\.\d+)?(?:万|亿|%)?$|^[-—–]$/.test(next))break;
+    const parsed=value(next,label);if(parsed.state!=='missing')candidates.push({label,...parsed});break;
+   }
+  }
+  if(candidates.length===1)summary.push(candidates[0]);
+  else if(candidates.length>1)diagnostics.missing.push('整体指标候选不唯一：'+label);
+ }
  const counts=[...new Set([...norm(document.body.innerText).matchAll(/(?:合计数据\(?|共)(\d+)条/g)].map(m=>Number(m[1])))];const expectedRows=counts.length===1?counts[0]:null;
- const context={route,origin:location.origin,dates,primaryVerified:Boolean(primary)&&primaryCandidates.every(c=>JSON.stringify([...new Set(c.values)])===JSON.stringify(dates)),selectedMode,loading:[...document.querySelectorAll('[aria-busy="true"],[class*="loading-mask"],[class*="loadingMask"],[class*="spin-spinning"]')].some(shown),productId:route===unit&&ids.length===1?ids[0]:null,adId:route===unit&&/^\d{6,20}$/.test(adId||'')?adId:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
- const response=extra=>({protocol,action:command.action,context,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
+ const context={route,origin:location.origin,dates,primaryVerified,selectedMode,loading:[...document.querySelectorAll('[aria-busy="true"],[class*="loading-mask"],[class*="loadingMask"],[class*="spin-spinning"]')].some(shown),productId:route===unit&&ids.length===1?ids[0]:null,adId:route===unit&&/^\d{6,20}$/.test(adId||'')?adId:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
+ const response=extra=>({protocol,action:command.action,context,summary,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
  if(command.action==='read'){diagnostics.unmatchedRows=rows.filter(r=>/商品\s*ID|^\s*\d{1,2}:00/.test(text(r))&&fieldsFor(r).length===0).slice(0,3).map(r=>({tag:r.tagName,cellCount:r.children.length,cellTags:[...r.children].map(c=>c.tagName),ancestorTags:(()=>{const a=[];for(let p=r.parentElement;p&&a.length<6;p=p.parentElement)a.push({tag:p.tagName,role:p.getAttribute('role'),className:String(p.className).slice(0,120)});return a;})()}));return response({});}
  if(command.action==='all-mode'){if(route!==overview)throw Error('不能在单元页切换账户模式');if(selectedMode==='全部')return response({kind:'already-selected'});if(!modeGroups.length)throw Error('未唯一识别报表“全部”模式控件');modeGroups[0].e.click();return response({kind:'mode-requested'});}
  if(command.action==='open-details'){
@@ -112,7 +147,7 @@ export function batchReportDocument(command={action:'read'}){
   const targets=[...ancestors].filter(e=>true&&shown(e)&&((e.scrollHeight>e.clientHeight+4&&/auto|scroll|hidden/.test(getComputedStyle(e).overflowY))||(e.scrollWidth>e.clientWidth+4&&/auto|scroll|hidden/.test(getComputedStyle(e).overflowX)))&&(/商品\s*ID|\d{1,2}:00/.test(text(e))));globalThis.__xinyongtuBatchScroll={targets:targets.slice(0,6),index:0};for(const e of targets.slice(0,6))e.scrollTo({top:0,left:0,behavior:'instant'});return response({kind:'scroll-ready'});
  }
  if(command.action==='date-step'){
-  const start=command.start,end=command.end||start;if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primary)throw Error('未确认主统计日期控件，未操作对比日期');
+  const start=command.start,end=command.end||start;if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
   const openCalendars=[...document.querySelectorAll('[role="dialog"],[class*="calendar"],[class*="Calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"]')].filter(shown).filter(e=>e.querySelector('[title],[data-date],td,[role="gridcell"]'));
   if(dates[0]===start&&(dates.length===1?start===end:dates.at(-1)===end)&&!openCalendars.length)return response({kind:'date-selected'});
   if(dates[0]===start&&dates.at(-1)===end&&openCalendars.length){const confirm=openCalendars.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).find(e=>shown(e)&&/^(确定|应用|查询|OK|Apply)$/.test(text(e)));if(confirm){confirm.click();return response({kind:'date-confirm-requested'});}}

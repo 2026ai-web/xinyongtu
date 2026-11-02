@@ -11,7 +11,8 @@ def html(unit=False):
     headers='<th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)
     hours=''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>1</td>' for f in fields)+'</tr>' for i in range(24))
     products='' if unit else '<p>合计数据（1条）</p><table><thead><tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody><tr><td>商品 ID：900224894507 稳定成本推广 <a href="/goods/report/promotion/unit?adId=9146588221&beginDate=2026-10-30&endDate=2026-10-30">查看详情</a></td>'+''.join('<td>24</td>' for f in fields)+'</tr></tbody></table>'
-    return '<style>td,th{min-width:90px;padding:4px}nav{padding:8px}input{width:150px}</style>'+controls+'<table><thead><tr>'+headers+'</tr></thead><tbody>'+hours+'</tbody></table>'+products+'<button onclick="window.bad=true">调整预算</button>'
+    summary='<section><h2>数据概况</h2>'+''.join('<div><span>'+f+'</span><strong>24</strong></div>' for f in fields[:6])+'</section>'
+    return '<style>td,th{min-width:90px;padding:4px}nav{padding:8px}input{width:150px}</style>'+controls+summary+'<table><thead><tr>'+headers+'</tr></thead><tbody>'+hours+'</tbody></table>'+products+'<button onclick="window.bad=true">调整预算</button>'
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1500,'height':900})
@@ -68,7 +69,7 @@ with sync_playwright() as p:
       return {job,data:await store.export('integration')};
     }''')
     assert integration['job']['phase']=='complete',integration
-    assert len(integration['data']['datasets'])==3,integration
+    assert len(integration['data']['datasets'])==2,integration
     page.add_init_script("window.chrome={tabs:{onActivated:{addListener:()=>{}},onUpdated:{addListener:()=>{}}}}")
     errors=[]
     page.on('pageerror',lambda error: errors.append(str(error)))
