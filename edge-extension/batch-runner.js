@@ -1,7 +1,7 @@
 import {createBatchJob,metricFields,metricNumber,validateHours,reconcileProduct,reconcileAccount,chinaToday,validateOverall} from './batch-model.js';
 export async function runBatch({shop,days,store,driver,overviewURL,signal,onProgress=()=>{},now=Date.now()}){
- const old=await store.latest(shop),today=chinaToday(now);let job=old&&old.days===days&&old.today===today&&old.phase!=='complete'&&old.collectionContract==='three-layer-1'?old:createBatchJob(shop,days,now);
- job.collectionContract='three-layer-1';
+ const old=await store.latest(shop),today=chinaToday(now);let job=old&&old.days===days&&old.today===today&&old.phase!=='complete'&&old.collectionContract==='three-layer-table-1'?old:createBatchJob(shop,days,now);
+ job.collectionContract='three-layer-table-1';
  const owner=crypto.randomUUID();await store.claim(owner);let leaseError=null;const heartbeat=setInterval(()=>store.claim(owner).catch(e=>{leaseError=e;}),15000);
  const check=()=>{signal?.throwIfAborted();if(leaseError)throw leaseError;};
  async function checkpoint(message){check();job.updatedAt=new Date().toISOString();job.log.push({at:job.updatedAt,message});job.log=job.log.slice(-100);await store.saveJob(job);onProgress(message,job);}

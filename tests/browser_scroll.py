@@ -7,7 +7,8 @@ origin='https://yingxiao.pinduoduo.com'
 fields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量']
 headers='<tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr>'
 rows=['<tr><td>商品 ID：'+str(900224894500+i)+' 稳定成本推广</td>'+''.join('<td>24</td>' for _ in fields)+'</tr>' for i in range(13)]
-hours='<table><thead><tr><th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>13</td>' for _ in fields)+'</tr>' for i in range(24))+'</tbody></table>'
+total='<tr><td>合计数据（24条）</td>'+''.join('<td>312</td>' for _ in fields)+'</tr>'
+hours='<table><thead><tr><th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+total+''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>13</td>' for _ in fields)+'</tr>' for i in range(24))+'</tbody></table>'
 controls='<nav>今日 昨日 近7日 近30日 近90日<input type="date" value="2026-11-01"></nav><nav><span aria-selected="true">全部</span><span>稳定成本推广</span><span>全店托管</span></nav><div><button>趋势图</button><button>表格</button></div>'
 # Label and value as mixed direct text, split numeric spans, and comparison values.
 summary='<section><h2>数据概况</h2>'+''.join('<div><span>'+f+'</span>￥<b>3</b><b>12</b><i>.00</i>元<span>较昨日 9.9%</span></div>' if '元' in f else '<div><span>'+f+'</span>312<span>较昨日 9.9%</span></div>' for f in fields)+'</section>'

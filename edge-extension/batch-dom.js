@@ -15,9 +15,12 @@ export function batchReportDocument(command={action:'read'}){
  const scrollInfo=e=>({tag:e.tagName,className:String(e.className||'').slice(0,100),top:Math.round(e.scrollTop),left:Math.round(e.scrollLeft),maxTop:Math.max(0,e.scrollHeight-e.clientHeight),maxLeft:Math.max(0,e.scrollWidth-e.clientWidth)});
  const discoverScrollers=()=>{
   const roots=[document.scrollingElement||document.documentElement].filter(Boolean),found=[];
+  const reportAnchors=[...document.querySelectorAll('table,[role="grid"],[role="table"],h1,h2,h3,h4,[role="heading"]')].filter(e=>e.matches('table,[role="grid"],[role="table"]')||/^(数据概况|数据明细)$/.test((e.textContent||'').trim()));
   for(const e of new Set([...roots,...document.querySelectorAll('main,section,div,[role="main"],[role="grid"],[role="table"]')])){
    if(e.clientHeight<20||e.clientWidth<20||e.scrollHeight<=e.clientHeight+3&&e.scrollWidth<=e.clientWidth+3)continue;
    if(!shown(e))continue;const css=getComputedStyle(e);
+   const isRoot=roots.includes(e),hasReport=reportAnchors.some(a=>e===a||e.contains(a));
+   if(!isRoot&&!hasReport)continue;
    if(roots.includes(e)||/auto|scroll/.test(css.overflowY+' '+css.overflowX)||/hidden/.test(css.overflowX)&&e.scrollWidth>e.clientWidth+3)found.push(e);
   }
   if(found.length>64)throw Error('可滚动区域超过64个，无法确认完整遍历');return found;
@@ -73,10 +76,18 @@ export function batchReportDocument(command={action:'read'}){
  const url=new URL(location.href),adId=url.searchParams.get('adId'),ids=[...new Set([...(document.body.innerText||'').matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];
  const modeNames=['全部','稳定成本推广','全店托管'];
  // Build one small label index per invocation, never rescan the document per row/column.
+ const columns=['点击率','点击转化率','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量'];
+ const labelAliases=new Map(columns.flatMap(label=>[[label,label],...(label.endsWith('(元)')?[[label.slice(0,-3),label]]:[])]));
+ const canonicalLabel=raw=>labelAliases.get(norm(raw).replace(/[：:]$/,''))||null;
+ const summaryLabels=new Map();
  const labelIndex=new Map();
  const wantedLabels=new Set(['全部','稳定成本推广','全店托管','表格','查看详情','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量','点击率','点击转化率']);
- for(const e of document.querySelectorAll('button,a,span,div,[role="button"],[role="tab"]')){
-  const raw=e.textContent||'';if(raw.length>80)continue;const label=norm(raw);if(!wantedLabels.has(label)||!shown(e)||norm(text(e))!==label)continue;
+ for(const e of document.querySelectorAll('button,a,span,div,p,label,dt,dd,strong,b,em,small,h1,h2,h3,h4,[role="button"],[role="tab"]')){
+  const raw=e.textContent||'';
+  const direct=[...e.childNodes].filter(n=>n.nodeType===Node.TEXT_NODE).map(n=>n.textContent).join('');
+  const display=raw.length<=80&&canonicalLabel(raw)?norm(raw):canonicalLabel(direct)?norm(direct):null;
+  if(display&&shown(e)){const name=canonicalLabel(display);if(![...e.children].some(c=>canonicalLabel(c.textContent||'')===name&&shown(c))){if(!summaryLabels.has(name))summaryLabels.set(name,[]);summaryLabels.get(name).push({e,display});}}
+  if(raw.length>80)continue;const label=norm(raw);if(!wantedLabels.has(label)||!shown(e)||norm(text(e))!==label)continue;
   if([...e.children].some(c=>norm(c.textContent)===label&&shown(c)))continue;
   if(!labelIndex.has(label))labelIndex.set(label,[]);labelIndex.get(label).push(e);
  }
@@ -87,13 +98,12 @@ export function batchReportDocument(command={action:'read'}){
  for(const name of modeNames)for(const e of exactElements(name))if(modeGroups.some(g=>g.p.contains(e))){let p=e;for(let n=0;p&&n<3;n++,p=p.parentElement){if(p===modeGroups.find(g=>g.p.contains(e))?.p)break;if(p.getAttribute('aria-selected')==='true'||/(?:^|[\s_-])(active|selected)(?:$|[\s_-])/i.test(String(p.className))){selectedMode=name;break;}}
   if(!selectedMode){const rgb=getComputedStyle(e).color.match(/\d+/g)?.slice(0,3).map(Number);if(rgb&&rgb[2]-rgb[0]>70&&rgb[2]-rgb[1]>50)selectedMode=name;}
  }
- const columns=['点击率','点击转化率','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量'];
  const value=(s,label)=>{s=String(s||'').trim();if(/^[-—–]$/.test(s))return {current:null,state:'not-provided'};const m=/^[¥￥]?(-?\d[\d,]*(?:\.\d+)?)(?:\s*(万|亿))?(\s*%)?/.exec(s);if(!m)return {current:null,state:'missing'};if(m[3])return /率$/.test(label)?{current:m[1]+'%',state:'exact'}:{current:null,state:'wrong-unit'};if(/投产比/.test(label)&&m[2])return {current:null,state:'wrong-unit'};return {current:m[1]+(m[2]||''),state:m[2]?'abbreviated':'exact'};};
  const rowSelector='tr,[role="row"],[class*="table-row"],[class*="TableRow"]';
  const rows=[...document.querySelectorAll(rowSelector)].filter(shown);
  const headerGroups=[];
  for(const e of document.querySelectorAll('thead tr,[role="row"],[class*="table-header"],[class*="TableHeader"]'))if(shown(e)&&!(/商品\s*ID/.test(text(e)))){
-  const cells=[...e.querySelectorAll('th,[role="columnheader"]')].filter(c=>!/(?:^|\s)(?:anq|ant|rc)-table-cell-scrollbar(?:\s|$)/.test(String(c.className)));if(cells.length<2)continue;headerGroups.push({e,cells,labels:cells.map(c=>columns.find(l=>norm(text(c)).replace(/[▲▼↑↓↕]/g,'')===l)||null)});
+  const cells=[...e.querySelectorAll('th,[role="columnheader"]')].filter(c=>!/(?:^|\s)(?:anq|ant|rc)-table-cell-scrollbar(?:\s|$)/.test(String(c.className)));if(cells.length<2)continue;headerGroups.push({e,cells,labels:cells.map(c=>canonicalLabel(norm(text(c)).replace(/[▲▼↑↓↕]/g,'')))});
  }
  const diagnostics={route,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
  const computeFieldsFor=row=>{
@@ -107,7 +117,8 @@ export function batchReportDocument(command={action:'read'}){
     const groups=headerGroups.filter(h=>wrapper.contains(h.e)&&h.cells.length===cells.length);
     if(!groups.length)continue;
     const bodyTables=[...wrapper.querySelectorAll('table')].filter(t=>t!==table&&[...t.querySelectorAll('tbody tr')].some(r=>/商品\s*ID|^\s*\d{1,2}:00/.test(text(r))));
-    if(bodyTables.length)break;
+    const isTotal=/^(合计|总计|汇总)(数据)?(?:\(|$)/.test(norm(text(cells[0])));
+    if(bodyTables.length&&!(isTotal&&bodyTables.length===1&&wrapper.matches('.anq-table-container,.ant-table-container,.rc-table-container')))break;
     const signatures=new Set(groups.map(h=>JSON.stringify(h.labels)));
     if(signatures.size===1)return groups[0].labels.flatMap((label,i)=>label?[{label,...value(text(cells[i]),label)}]:[]);
     break;
@@ -134,29 +145,47 @@ export function batchReportDocument(command={action:'read'}){
  const hourly=[];for(const row of rows){const raw=text(row),m=/^\s*(\d{1,2}):00\s*[~～至—–-]\s*(\d{1,2}):(00|59)/.exec(raw);if(!m)continue;const hour=Number(m[1]);if(hour>23||!(Number(m[2])===hour+1&&m[3]==='00'||Number(m[2])===hour&&m[3]==='59'))continue;hourly.push({hour,metrics:fieldsFor(row)});}
  // Read displayed overall cards independently of table/hourly totals.
  // Accept one current value immediately following a label; do not invent totals.
- const summary=[],summaryEvidence=[];
+ const summary=[],summaryEvidence=[],overallTotalRows=[],detailTotalRows=[],overviewTotalElements=new Set();
+ for(const row of rows){
+  const first=row.children[0];if(!first||!/^(合计|总计|汇总)(数据)?(?:\(|$)/.test(norm(text(first))))continue;
+  const table=row.closest('table,[role="table"],[role="grid"]');if(!table)continue;
+  let members=rows.filter(r=>r.closest('table,[role="table"],[role="grid"]')===table);
+  let hasHours=members.some(r=>/^\s*\d{1,2}:00/.test(text(r))),hasProducts=members.some(r=>/商品\s*ID/.test(text(r)));
+  if(!hasHours&&!hasProducts){const wrapper=table.closest('.anq-table-container,.ant-table-container,.rc-table-container');if(wrapper){members=rows.filter(r=>wrapper.contains(r));hasHours=members.some(r=>/^\s*\d{1,2}:00/.test(text(r)));hasProducts=members.some(r=>/商品\s*ID/.test(text(r)));}}
+  const record={metrics:fieldsFor(row),tag:row.tagName,className:String(row.className||'').slice(0,100)};
+  if(hasHours&&!hasProducts){overallTotalRows.push(record);overviewTotalElements.add(row);}else if(hasProducts&&!hasHours)detailTotalRows.push(record);
+ }
+
+ diagnostics.totalRows={overview:overallTotalRows,detail:detailTotalRows};
  for(const label of columns){
   const candidates=[];
-  for(const e of exactElements(label)){
+  for(const {e,display} of summaryLabels.get(label)||[]){
    if(e.closest(rowSelector)||e.closest('thead,[role="columnheader"]'))continue;
    for(let p=e.parentElement,depth=0;p&&p!==document.body&&depth<5;depth++,p=p.parentElement){
     const raw=norm(text(p));if(raw.length>500||p.querySelector('table,[role="table"],[role="grid"]'))break;
-    if(columns.some(l=>raw.replace(label,'').includes(l)))break;
-    const at=raw.indexOf(label);if(at<0)continue;
+    if([...summaryLabels].some(([other,entries])=>other!==label&&entries.some(item=>p.contains(item.e))))break;
+    const at=raw.indexOf(display);if(at<0)continue;
     // Current values can be split across currency/integer/fraction spans or
     // be direct text nodes. Comparison values must never replace the first value.
-    const rest=raw.slice(at+label.length).replace(/^[：:]/,'');
+    const rest=raw.slice(at+display.length).replace(/^[：:]/,'');
     const m=/^([¥￥]?-?\d[\d,]*(?:\.\d+)?(?:万|亿|%)?|[-—–])(?:元|次|笔)?(?=$|[^\d.,万亿%])/.exec(rest);
     if(!m){if(rest)summaryEvidence.push({label,state:'unrecognized-current-value',tag:p.tagName,className:String(p.className||'').slice(0,100)});continue;}
     const parsed=value(m[1],label);if(parsed.state!=='missing')candidates.push({label,...parsed});break;
    }
   }
-  if(candidates.length===1)summary.push(candidates[0]);
-  else if(candidates.length>1)diagnostics.missing.push('整体指标候选不唯一：'+label);
-  summaryEvidence.push({label,candidates:candidates.length});
+  const tableCandidates=overallTotalRows.flatMap(r=>r.metrics.filter(m=>m.label===label));
+  if(tableCandidates.length===1)summary.push(tableCandidates[0]);
+  else diagnostics.missing.push('数据概况表格合计行缺失或不唯一：'+label);
+  summaryEvidence.push({label,tableCandidates:tableCandidates.length,source:tableCandidates.length===1?'overview-table-total':null,labelMatches:(summaryLabels.get(label)||[]).length,cardLabels:(summaryLabels.get(label)||[]).filter(({e})=>!e.closest(rowSelector)&&!e.closest('thead,[role="columnheader"]')).map(({e,display})=>({tag:e.tagName,display,className:String(e.className||'').slice(0,100),ancestors:(()=>{const out=[];for(let p=e.parentElement;p&&p!==document.body&&out.length<4;p=p.parentElement)out.push({tag:p.tagName,className:String(p.className||'').slice(0,100),childTags:[...p.children].slice(0,12).map(c=>c.tagName)});return out;})()})).slice(0,3),candidates:candidates.length});
  }
  diagnostics.summaryEvidence=summaryEvidence;
- const counts=[...new Set([...norm(document.body.innerText).matchAll(/(?:合计数据\(?|共)(\d+)条/g)].map(m=>Number(m[1])))];const expectedRows=counts.length===1?counts[0]:null;
+ // Only product counts drive pagination. The overview's 24-hour total
+ // may also say 合计数据(24条), which is not the number of promotion links.
+ const counts=[...new Set([...document.querySelectorAll('p,span,div,td')].filter(e=>{
+  const raw=e.textContent||'';if(!(raw.length<80&&/^(?:合计数据\(?|共)\d+条\)?$/.test(norm(raw))&&shown(e))||overviewTotalElements.has(e.closest(rowSelector)))return false;const table=e.closest('table,[role="table"],[role="grid"]');if(!table)return true;const region=table.closest('.anq-table-container,.ant-table-container,.rc-table-container')||table;return rows.some(r=>region.contains(r)&&/商品\s*ID/.test(text(r)));
+ }).flatMap(e=>{const m=/^(?:合计数据\(?|共)(\d+)条\)?$/.exec(norm(text(e)));return m?[Number(m[1])]:[];}))];
+ const expectedRows=counts.length===1?counts[0]:null;
+
  const context={route,origin:location.origin,dates,primaryVerified,selectedMode,loading:[...document.querySelectorAll('[aria-busy="true"],[class*="loading-mask"],[class*="loadingMask"],[class*="spin-spinning"]')].some(shown),productId:route===unit&&ids.length===1?ids[0]:null,adId:route===unit&&/^\d{6,20}$/.test(adId||'')?adId:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
  const response=extra=>({protocol,action:command.action,context,summary,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
  if(command.action==='read'){diagnostics.unmatchedRows=rows.filter(r=>/商品\s*ID|^\s*\d{1,2}:00/.test(text(r))&&fieldsFor(r).length===0).slice(0,3).map(r=>({tag:r.tagName,cellCount:r.children.length,cellTags:[...r.children].map(c=>c.tagName),ancestorTags:(()=>{const a=[];for(let p=r.parentElement;p&&a.length<6;p=p.parentElement)a.push({tag:p.tagName,role:p.getAttribute('role'),className:String(p.className).slice(0,120)});return a;})()}));return response({});}

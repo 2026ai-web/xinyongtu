@@ -10,7 +10,8 @@ def document(unit=False):
     compare='<nav>对比日期<input class="comparisonDate" type="date" value="2026-10-31"></nav>'
     cards='<section><h2>数据概况</h2>'+''.join('<div><span>'+f+'</span><strong>'+('24' if unit else '48')+'</strong><small>较前日 0%</small></div>' for f in fields)+'</section>'
     # Details start in chart view: the hourly table exists only after an explicit toggle.
-    table='<table><thead><tr><th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>'+('1' if unit else '2')+'</td>' for f in fields)+'</tr>' for i in range(24))+'</tbody></table>'
+    total='<tr><td>合计数据（24条）</td>'+''.join('<td>'+('24' if unit else '48')+'</td>' for f in fields)+'</tr>'
+    table='<table><thead><tr><th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+total+''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>'+('1' if unit else '2')+'</td>' for f in fields)+'</tr>' for i in range(24))+'</tbody></table>'
     toggle='<div><button>趋势图</button><button id="tableToggle">表格</button></div><div id="hours"></div>'
     products='' if unit else '<h2>数据明细</h2><p>合计数据（2条）</p><table><thead><tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+''.join('<tr><td>商品 ID：'+str(900224894507+i)+' 稳定成本推广 <a href="/goods/report/promotion/unit?adId='+str(9146588221+i)+'&beginDate=2026-10-30&endDate=2026-10-30">查看详情</a></td>'+''.join('<td>24</td>' for f in fields)+'</tr>' for i in range(2))+'</tbody></table>'
     return '<style>td,th{min-width:90px;padding:4px}nav{padding:8px}input{width:150px}</style>'+'<section>'+main+compare+'</section>'+cards+toggle+products+('<p id="identity">商品 ID：900224894507</p>' if unit else '<nav><button aria-selected="true">全部</button><button>稳定成本推广</button><button>全店托管</button></nav>')+'<button id="budget">调整预算</button>',table
@@ -41,7 +42,7 @@ with sync_playwright() as p:
       }
       render(location.href);
       const evidence=dom();assertDay(evidence,'2026-11-01');
-      if(evidence.summary.length!==6||evidence.hourly.length)throw Error('summary or chart fixture invalid');
+      if(evidence.summary.length!==0||evidence.hourly.length)throw Error('summary or chart fixture invalid');
       // Two independent primary dates with conflicting values must still reject.
       const conflict=document.createElement('input');conflict.type='date';conflict.setAttribute('aria-label','统计日期');conflict.value='2026-10-31';document.body.append(conflict);
       let rejected=false;try{assertDay(dom(),'2026-11-01')}catch{rejected=true}conflict.remove();if(!rejected)throw Error('conflicting primary date accepted');
@@ -64,5 +65,5 @@ with sync_playwright() as p:
     assert len({u['adId'] for u in units})==2,result
     assert all(len(u['hourly'])==24 and len(u['dailyOverall']['metrics'])==6 and u['reconciliation']['matched'] for u in units),result
     assert result['budgetClicks']==0
-    print('PASS: independent overview cards, 2 links x daily totals + 24 hours, stale detail URL corrected, comparison date excluded, conflicting primary/URL-only rejected, chart toggle and full driver/IndexedDB/runner; no ad changes')
+    print('PASS: explicit overview table totals, 2 links x daily totals + 24 hours, stale detail URL corrected, comparison date excluded, conflicting primary/URL-only rejected, chart toggle and full driver/IndexedDB/runner; no ad changes')
     browser.close()

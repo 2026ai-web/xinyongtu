@@ -27,7 +27,7 @@ export function reconcileAccount(products,totals){
  const checks=[];for(const field of metricFields){let sum=0,unavailable=0;for(const row of products){const n=metricNumber(field,row.metrics.find(m=>m.label===field));if(n===null){if(!(row.mode==='全店托管'&&field==='总花费(元)'))throw Error('商品明细非花费字段不可为空：'+field);unavailable++;}else sum+=n;}const account=totals[field];if(account===null||account===undefined)throw Error('账户分时缺少 '+field);if(!unavailable&&sum!==account)throw Error('账户分时与商品日汇总不一致：'+field);checks.push({field,account,reportedProductSum:sum,unavailableRows:unavailable,unallocated:unavailable?account-sum:0,matched:unavailable?null:true});}return checks;
 }
 
-// Overview cards are required source data, never substituted with summed hours.
+// The displayed overview table total is source data; never synthesize it from hours.
 export function validateOverall(summary,hourTotals){
- const totals={};for(const field of metricFields){const values=(summary||[]).filter(m=>m.label===field);if(values.length!==1)throw Error('数据概况整体指标缺失或不唯一：'+field);const n=metricNumber(field,values[0]);if(n===null)throw Error('数据概况整体指标不可为空：'+field);if(n!==hourTotals[field])throw Error('数据概况整体指标与分时不一致：'+field);totals[field]=n;}return {complete:true,totals};
+ const totals={};for(const field of metricFields){const values=(summary||[]).filter(m=>m.label===field);if(values.length!==1)throw Error('数据概况表格合计指标缺失或不唯一：'+field);const n=metricNumber(field,values[0]);if(n===null)throw Error('数据概况表格合计指标不可为空：'+field);if(n!==hourTotals[field])throw Error('数据概况表格合计指标与分时不一致：'+field);totals[field]=n;}return {complete:true,totals};
 }

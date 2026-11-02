@@ -16,7 +16,7 @@ test('failure preserves checkpoint; resume retries unit and does not rescan acco
 
 test('account reconciliation records unallocated managed spend without distributing it',()=>{const rows=[{mode:'全店托管',metrics:metrics('24')}];rows[0].metrics[0]={label:'总花费(元)',current:null,state:'not-provided'};const result=reconcileAccount(rows,validateHours(hourly(),'全部').totals);assert.equal(result[0].unallocated,2400);assert.equal(result[0].matched,null);rows[0].metrics[1].current='23';assert.throws(()=>reconcileAccount(rows,validateHours(hourly(),'全部').totals));});
 
-test('overview cards must be read, not synthesized from hours; mismatch and missing reject',()=>{const totals=validateHours(hourly(),'全部').totals;assert.equal(validateOverall(metrics('24'),totals).complete,true);assert.throws(()=>validateOverall([],totals));assert.throws(()=>validateOverall(metrics('25'),totals));});
+test('overview table totals must be read, not synthesized from hours; mismatch and missing reject',()=>{const totals=validateHours(hourly(),'全部').totals;assert.equal(validateOverall(metrics('24'),totals).complete,true);assert.throws(()=>validateOverall([],totals));assert.throws(()=>validateOverall(metrics('25'),totals));});
 test('incomplete first link does not prevent other links from being saved',async()=>{
  const f=fixture();const scan=f.driver.scan;let current='';
  f.driver.scan=async(d,opts={})=>{const data=await scan(d,opts);if(opts.account){data.products.push({...data.products[0],productId:'900224894508'});data.hourly=data.hourly.map(r=>({...r,metrics:metrics('2')}));data.summary=metrics('48');}else if(current==='900224894507')throw Error('主统计日期未确认');return data;};
@@ -24,7 +24,7 @@ test('incomplete first link does not prevent other links from being saved',async
  const j=await runBatch({shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-10-31T01:00:00Z')});
  assert.equal(j.phase,'blocked');assert.equal(j.coverage.unitDays,1);assert.equal(j.coverage.expectedUnitDays,2);assert.equal(j.failures[0].productId,'900224894507');assert.equal(f.datasets.size,2);
 });
-test('old account checkpoints without overall cards are rescanned without deleting old datasets',async()=>{
+test('old account checkpoints without table-total contract are rescanned without deleting old datasets',async()=>{
  const f=fixture(),args={shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-10-31T01:00:00Z')};
  await f.store.saveJob({id:'legacy',today:'2026-10-31',days:1,phase:'blocked',completedDays:{'2026-10-30':'legacy-account'}});
  f.datasets.set('legacy-account',{products:[]});const j=await runBatch(args);assert.notEqual(j.id,'legacy');assert.equal(j.phase,'complete');assert.equal(f.datasets.has('legacy-account'),true);
