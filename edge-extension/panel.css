@@ -6,3 +6,5 @@ label{display:block;font-size:13px;color:#60738e;margin:10px 0}select{margin-lef
 
 #runState{position:sticky;top:0;z-index:20;padding:12px;background:#fff3d7;color:#67410c;border-bottom:1px solid #e5ca95;font-size:13px;line-height:1.6;overflow-wrap:anywhere}#runState[data-running=true]{background:#e4f3eb;color:#185336;border-color:#aacdb8}
 #batchStatus{background:#edf4ff;padding:10px;border-radius:6px;min-height:40px}summary{cursor:pointer;padding:14px;color:#526783}input{padding:8px;border:1px solid #cbd7e6;border-radius:5px;max-width:100%}
+
+#batchDateFields[hidden], #batchEndLabel[hidden] { display: none; }

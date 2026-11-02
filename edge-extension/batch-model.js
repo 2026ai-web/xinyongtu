@@ -1,6 +1,15 @@
 export const metricFields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量'];
 export function chinaToday(now=Date.now()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));}
-export function requestedDates(days=7,now=Date.now()){
+export function requestedDates(days=7,now=Date.now(),selection=null){
+ if(selection){
+  const valid=d=>typeof d==='string'&&/^20\d{2}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d+'T00:00:00Z'))&&new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
+  const start=selection.start,end=selection.end??start;
+  if(!valid(start)||!valid(end)||start>end)throw Error('请选择有效的起止日期，结束日不能早于开始日');
+  if(end>=chinaToday(now))throw Error('只支持已结束的完整日，不能选择今天或未来日期');
+  const first=Date.parse(start+'T00:00:00Z'),last=Date.parse(end+'T00:00:00Z'),count=(last-first)/86400000+1;
+  if(count>30)throw Error('一次最多选择30个完整日，请分批采集');
+  return Array.from({length:count},(_,i)=>new Date(first+i*86400000).toISOString().slice(0,10));
+ }
  if(![1,7,30].includes(days))throw Error('历史范围只支持1、7或30天');const today=chinaToday(now),base=Date.parse(today+'T00:00:00Z');return Array.from({length:days},(_,i)=>new Date(base-(days-i)*86400000).toISOString().slice(0,10));
 }
 export function metricNumber(field,metric){
@@ -20,8 +29,8 @@ export function reconcileProduct(row,hourTotals){
  const differences=[];for(const label of metricFields){const m=row.metrics.find(v=>v.label===label);if(!m)continue;let n;try{n=metricNumber(label,m);}catch{continue;}if(n!==null&&hourTotals[label]!==null&&hourTotals[label]!==undefined&&n!==hourTotals[label])differences.push({label,daily:n,hourly:hourTotals[label]});}return {matched:differences.length===0,differences};
 }
 export function datasetKey(data){return JSON.stringify([data.shop,data.origin,data.type,data.date,data.mode||null,data.productId||null,data.adId||null]);}
-export function createBatchJob(shop,days=7,now=Date.now()){
- shop=String(shop||'').trim().slice(0,80);if(!shop)throw Error('请先填写店铺备注');return {schemaVersion:'batch-job-1',id:crypto.randomUUID(),shop,days,dates:requestedDates(days,now),today:chinaToday(now),phase:'pending',createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString(),completedDays:{},units:{},failures:[],log:[],datasets:[],liveCount:0};
+export function createBatchJob(shop,days=7,now=Date.now(),selection=null){
+ shop=String(shop||'').trim().slice(0,80);if(!shop)throw Error('请先填写店铺备注');const dates=requestedDates(days,now,selection);return {schemaVersion:'batch-job-1',id:crypto.randomUUID(),shop,days:dates.length,dates,dateSelection:{kind:selection?'custom':'preset',start:dates[0],end:dates.at(-1),perDay:true},today:chinaToday(now),phase:'pending',createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString(),completedDays:{},units:{},failures:[],log:[],datasets:[],liveCount:0};
 }
 export function reconcileAccount(products,totals){
  const checks=[];for(const field of metricFields){let sum=0,unavailable=0;for(const row of products){const n=metricNumber(field,row.metrics.find(m=>m.label===field));if(n===null){if(!(row.mode==='全店托管'&&field==='总花费(元)'))throw Error('商品明细非花费字段不可为空：'+field);unavailable++;}else sum+=n;}const account=totals[field];if(account===null||account===undefined)throw Error('账户分时缺少 '+field);if(!unavailable&&sum!==account)throw Error('账户分时与商品日汇总不一致：'+field);checks.push({field,account,reportedProductSum:sum,unavailableRows:unavailable,unallocated:unavailable?account-sum:0,matched:unavailable?null:true});}return checks;

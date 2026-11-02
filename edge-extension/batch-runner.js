@@ -1,7 +1,7 @@
-import {createBatchJob,metricFields,metricNumber,validateHours,reconcileProduct,reconcileAccount,chinaToday,validateOverall,normalizeManagedHours,managedSharedRecord} from './batch-model.js';
-export async function runBatch({shop,days,store,driver,overviewURL,signal,onProgress=()=>{},now=Date.now()}){
- const old=await store.latest(shop),today=chinaToday(now);let job=old&&old.days===days&&old.today===today&&old.phase!=='complete'&&old.collectionContract==='three-layer-table-2'?old:createBatchJob(shop,days,now);
- job.collectionContract='three-layer-table-2';
+import {createBatchJob,metricFields,metricNumber,validateHours,reconcileProduct,reconcileAccount,chinaToday,validateOverall,normalizeManagedHours,managedSharedRecord,requestedDates} from './batch-model.js';
+export async function runBatch({shop,days,startDate=null,endDate=null,store,driver,overviewURL,signal,onProgress=()=>{},now=Date.now()}){
+ const selection=startDate!==null||endDate!==null?{start:startDate,end:endDate??startDate}:null,dates=requestedDates(days,now,selection);const old=await store.latest(shop),today=chinaToday(now);let job=old&&JSON.stringify(old.dates)===JSON.stringify(dates)&&old.today===today&&old.phase!=='complete'&&old.collectionContract==='three-layer-table-3'?old:createBatchJob(shop,days,now,selection);
+ job.collectionContract='three-layer-table-3';
  const owner=crypto.randomUUID();await store.claim(owner);let leaseError=null;const heartbeat=setInterval(()=>store.claim(owner).catch(e=>{leaseError=e;}),15000);
  const check=()=>{signal?.throwIfAborted();if(leaseError)throw leaseError;};
  async function checkpoint(message){check();job.updatedAt=new Date().toISOString();job.log.push({at:job.updatedAt,message});job.log=job.log.slice(-100);await store.saveJob(job);onProgress(message,job);}

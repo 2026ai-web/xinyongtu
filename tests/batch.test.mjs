@@ -59,3 +59,13 @@ test('managed link records complete without per-link spend, with scopes and shar
  const job=await runBatch({shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-02T01:00:00Z')});
  assert.equal(job.phase,'complete');assert.equal(job.coverage.unavailableLinkSpendDays,1);const account=[...f.datasets.values()].find(d=>d.type==='account-day'),unit=[...f.datasets.values()].find(d=>d.type==='unit-day');assert.equal(account.recordContext.scope,'account');assert.equal(unit.recordContext.scope,'promotion-link');assert.equal(unit.sharedManagedGroupRef,account.managedShared.groupId);assert.equal(unit.validation.totals['总花费(元)'],null);assert.equal(unit.dailyOverall.date,'2026-11-01');assert.equal(unit.dailyOverall.adId,unit.adId);assert.equal(account.managedShared.spend.amountFen,2400);
 });
+
+test('custom single/range dates exclude today and validate real calendar days',()=>{
+ const now=Date.parse('2026-11-02T01:00:00Z');assert.deepEqual(requestedDates(1,now,{start:'2026-10-31'}),['2026-10-31']);assert.deepEqual(requestedDates(1,now,{start:'2026-10-30',end:'2026-11-01'}),['2026-10-30','2026-10-31','2026-11-01']);
+ for(const selection of [{start:''},{start:'2026-10-30',end:''},{start:'2026-11-02'},{start:'2026-11-03'},{start:'2026-02-30'},{start:'2026-11-01',end:'2026-10-31'},{start:'2026-09-01',end:'2026-11-01'}])assert.throws(()=>requestedDates(1,now,selection));
+});
+test('same-length custom ranges never reuse a different date task',async()=>{
+ const f=fixture(),base={shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-02T01:00:00Z')};
+ const a=await runBatch({...base,startDate:'2026-10-28',endDate:'2026-10-29'});assert.equal(a.phase,'complete');
+ const b=await runBatch({...base,startDate:'2026-10-30',endDate:'2026-10-31'});assert.notEqual(a.id,b.id);assert.deepEqual(b.dates,['2026-10-30','2026-10-31']);assert.equal(b.dateSelection.perDay,true);assert.equal(f.datasets.size,8);
+});
