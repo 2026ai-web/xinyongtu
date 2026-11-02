@@ -1,3 +1,4 @@
+import {recordingGuide} from './batch-model.js';
 import {createBatchStore} from './batch-store.js';
 import {createBatchDriver,checkedReportURL,OVERVIEW} from './batch-driver.js';
 import {runBatch} from './batch-runner.js';
@@ -20,6 +21,6 @@ export function installBatchPanel({beforeStart,setRunning}){
   }catch(e){status('未完成：'+e.message);}finally{controller=null;setRunning(false);for(const id of controls)$(id).disabled=false;$('batchStop').disabled=true;}
  };
  $('batchStop').onclick=()=>{controller?.abort(new DOMException('用户停止，已保存进度可继续','AbortError'));status('正在停止并保存断点…');};
- $('batchExport').onclick=async()=>{try{const warehouse=await store.export($('shopLabel').value.trim()),payload={...warehouse,extensionVersion:chrome.runtime?.getManifest?.().version||'unknown',lastJob,diagnostic,diagnosticHistory};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-batch-reports.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){status('导出失败：'+e.message);}};
+ $('batchExport').onclick=async()=>{try{const warehouse=await store.export($('shopLabel').value.trim()),payload={...warehouse,recordingGuide,extensionVersion:chrome.runtime?.getManifest?.().version||'unknown',lastJob,diagnostic,diagnosticHistory};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-batch-reports.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){status('导出失败：'+e.message);}};
  $('batchClear').onclick=async()=>{if(controller){status('请先停止采集再清理仓库');return;}if(!confirm('请先导出备份。确定清空全部店铺的一键采集仓库？'))return;try{await store.clear();lastJob=null;status('一键采集仓库已清空');}catch(e){status(e.message);}};
 }

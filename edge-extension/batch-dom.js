@@ -156,7 +156,7 @@ export function batchReportDocument(command={action:'read'}){
   if(hasHours&&!hasProducts){overallTotalRows.push(record);overviewTotalElements.add(row);}else if(hasProducts&&!hasHours)detailTotalRows.push(record);
  }
 
- diagnostics.totalRows={overview:overallTotalRows,detail:detailTotalRows};
+ diagnostics.totalRows={scope:route===unit?'promotion-link':'account',overview:overallTotalRows,detail:detailTotalRows};
  for(const label of columns){
   const candidates=[];
   for(const {e,display} of summaryLabels.get(label)||[]){
@@ -176,7 +176,7 @@ export function batchReportDocument(command={action:'read'}){
   const tableCandidates=overallTotalRows.flatMap(r=>r.metrics.filter(m=>m.label===label));
   if(tableCandidates.length===1)summary.push(tableCandidates[0]);
   else diagnostics.missing.push('数据概况表格合计行缺失或不唯一：'+label);
-  summaryEvidence.push({label,tableCandidates:tableCandidates.length,source:tableCandidates.length===1?'overview-table-total':null,labelMatches:(summaryLabels.get(label)||[]).length,cardLabels:(summaryLabels.get(label)||[]).filter(({e})=>!e.closest(rowSelector)&&!e.closest('thead,[role="columnheader"]')).map(({e,display})=>({tag:e.tagName,display,className:String(e.className||'').slice(0,100),ancestors:(()=>{const out=[];for(let p=e.parentElement;p&&p!==document.body&&out.length<4;p=p.parentElement)out.push({tag:p.tagName,className:String(p.className||'').slice(0,100),childTags:[...p.children].slice(0,12).map(c=>c.tagName)});return out;})()})).slice(0,3),candidates:candidates.length});
+  summaryEvidence.push({label,tableCandidates:tableCandidates.length,source:tableCandidates.length===1?(route===unit?'link-table-total':'overview-table-total'):null,labelMatches:(summaryLabels.get(label)||[]).length,cardLabels:(summaryLabels.get(label)||[]).filter(({e})=>!e.closest(rowSelector)&&!e.closest('thead,[role="columnheader"]')).map(({e,display})=>({tag:e.tagName,display,className:String(e.className||'').slice(0,100),ancestors:(()=>{const out=[];for(let p=e.parentElement;p&&p!==document.body&&out.length<4;p=p.parentElement)out.push({tag:p.tagName,className:String(p.className||'').slice(0,100),childTags:[...p.children].slice(0,12).map(c=>c.tagName)});return out;})()})).slice(0,3),candidates:candidates.length});
  }
  diagnostics.summaryEvidence=summaryEvidence;
  // Only product counts drive pagination. The overview's 24-hour total
@@ -187,7 +187,10 @@ export function batchReportDocument(command={action:'read'}){
  const expectedRows=counts.length===1?counts[0]:null;
 
  const context={route,origin:location.origin,dates,primaryVerified,selectedMode,loading:[...document.querySelectorAll('[aria-busy="true"],[class*="loading-mask"],[class*="loadingMask"],[class*="spin-spinning"]')].some(shown),productId:route===unit&&ids.length===1?ids[0]:null,adId:route===unit&&/^\d{6,20}$/.test(adId||'')?adId:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
- const response=extra=>({protocol,action:command.action,context,summary,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
+ const essential=['交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量'];
+ const hourHeaders=headerGroups.filter(g=>essential.every(label=>g.labels.includes(label)));
+ const fieldAvailability={totalSpend:{state:route===unit&&hourly.length&&hourHeaders.length?(hourHeaders.some(g=>g.labels.includes('总花费(元)'))?'present':'not-provided'):'unknown',basis:'observed-report-headers',scope:route===unit?'promotion-link':'account',headerSignatures:hourHeaders.map(g=>g.labels)}};
+ const response=extra=>({fieldAvailability,protocol,action:command.action,context,summary,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
  if(command.action==='read'){diagnostics.unmatchedRows=rows.filter(r=>/商品\s*ID|^\s*\d{1,2}:00/.test(text(r))&&fieldsFor(r).length===0).slice(0,3).map(r=>({tag:r.tagName,cellCount:r.children.length,cellTags:[...r.children].map(c=>c.tagName),ancestorTags:(()=>{const a=[];for(let p=r.parentElement;p&&a.length<6;p=p.parentElement)a.push({tag:p.tagName,role:p.getAttribute('role'),className:String(p.className).slice(0,120)});return a;})()}));return response({});}
  if(command.action==='all-mode'){if(route!==overview)throw Error('不能在单元页切换账户模式');if(selectedMode==='全部')return response({kind:'already-selected'});if(!modeGroups.length)throw Error('未唯一识别报表“全部”模式控件');modeGroups[0].e.click();return response({kind:'mode-requested'});}
  if(command.action==='open-details'){

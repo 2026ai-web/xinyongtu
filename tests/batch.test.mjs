@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {metricFields,metricNumber,validateHours,reconcileProduct,requestedDates,datasetKey,reconcileAccount,validateOverall} from '../edge-extension/batch-model.js';
+import {metricFields,metricNumber,validateHours,reconcileProduct,requestedDates,datasetKey,reconcileAccount,validateOverall,normalizeManagedHours,managedSharedRecord} from '../edge-extension/batch-model.js';
 import {checkedReportURL,assertDay,mergeRows} from '../edge-extension/batch-driver.js';
 import {runBatch} from '../edge-extension/batch-runner.js';
 const metrics=(amount='1')=>metricFields.map(label=>({label,current:amount,state:'exact'}));const hourly=()=>Array.from({length:24},(_,hour)=>({hour,metrics:metrics()}));
@@ -34,4 +34,28 @@ test('13 links over 1/7/30 complete days have explicit three-layer coverage',asy
  f.driver.openUnit=async row=>({adId:row.adId,url:'https://yingxiao.pinduoduo.com/goods/report/promotion/unit?adId='+row.adId});
  const j=await runBatch({shop:'fixture',days,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-02T01:00:00Z')});assert.equal(j.phase,'complete');assert.equal(j.coverage.unitDays,13*days);assert.equal(f.datasets.size,14*days);
  }
+});
+
+const absentSpend={totalSpend:{state:'not-provided',basis:'observed-report-headers',scope:'promotion-link'}};
+test('managed omitted spend column is null, never zero; other missing fields still fail',()=>{
+ const raw=hourly().map(r=>({...r,metrics:r.metrics.filter(m=>m.label!=='总花费(元)')}));
+ const normalized=normalizeManagedHours(raw,'全店托管',absentSpend),v=validateHours(normalized,'全店托管');
+ assert.equal(v.totals['总花费(元)'],null);assert.equal(v.financialComplete,false);assert.equal(v.complete,true);assert.equal(raw[0].metrics.length,5);
+ assert.throws(()=>validateHours(normalizeManagedHours(raw,'稳定成本推广',absentSpend),'稳定成本推广'));
+ assert.throws(()=>validateHours(normalizeManagedHours(raw,'全店托管',{totalSpend:{state:'unknown'}}),'全店托管'));
+ const broken=structuredClone(raw);broken[0].metrics=broken[0].metrics.filter(m=>m.label!=='点击量');assert.throws(()=>validateHours(normalizeManagedHours(broken,'全店托管',absentSpend),'全店托管'));
+ const blank=hourly();blank[0].metrics[0].state='missing';assert.throws(()=>validateHours(normalizeManagedHours(blank,'全店托管',absentSpend),'全店托管'));
+ assert.throws(()=>validateHours(normalized.slice(1),'全店托管'));
+});
+test('shared managed cost is one derived group amount with unknown settings and no allocation',()=>{
+ const row={productId:'900224894507',mode:'全店托管',metrics:metrics('24')};row.metrics[0]={label:'总花费(元)',current:null,state:'not-provided'};
+ const reconciliation=reconcileAccount([row],validateHours(hourly(),'全部').totals),shared=managedSharedRecord('fixture','2026-11-01',[row],reconciliation);
+ assert.equal(shared.scope,'managed-group');assert.equal(shared.spend.amountFen,2400);assert.equal(shared.spend.directObservation,false);assert.equal(shared.spend.state,'derived');assert.equal(shared.settings.dailyBudget.value,null);assert.equal(shared.settings.targetRoas.state,'not-collected');assert.equal(shared.allocationPolicy,'never-allocate-to-links');
+ assert.notEqual(shared.groupId,managedSharedRecord('fixture','2026-10-31',[row],reconciliation).groupId);
+ assert.throws(()=>managedSharedRecord('fixture','2026-11-01',[row],[{field:'总花费(元)',unallocated:-1}]));
+});
+test('managed link records complete without per-link spend, with scopes and shared reference',async()=>{
+ const f=fixture();const scan=f.driver.scan;f.driver.scan=async(d,opts={})=>{const data=await scan(d,opts);if(opts.account){data.products[0].mode='全店托管';data.products[0].metrics[0]={label:'总花费(元)',current:null,state:'not-provided'};}else{data.hourly=data.hourly.map(r=>({...r,metrics:r.metrics.filter(m=>m.label!=='总花费(元)')}));data.fieldAvailability=absentSpend;}return data;};
+ const job=await runBatch({shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-02T01:00:00Z')});
+ assert.equal(job.phase,'complete');assert.equal(job.coverage.unavailableLinkSpendDays,1);const account=[...f.datasets.values()].find(d=>d.type==='account-day'),unit=[...f.datasets.values()].find(d=>d.type==='unit-day');assert.equal(account.recordContext.scope,'account');assert.equal(unit.recordContext.scope,'promotion-link');assert.equal(unit.sharedManagedGroupRef,account.managedShared.groupId);assert.equal(unit.validation.totals['总花费(元)'],null);assert.equal(unit.dailyOverall.date,'2026-11-01');assert.equal(unit.dailyOverall.adId,unit.adId);assert.equal(account.managedShared.spend.amountFen,2400);
 });

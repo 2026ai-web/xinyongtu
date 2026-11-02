@@ -14,7 +14,7 @@ export function validateHours(hours,mode,{partial=false}={}){
  for(const row of hours){if(!Number.isInteger(row.hour)||row.hour<0||row.hour>23||seen.has(row.hour))throw Error('分时时段重复或无效');seen.add(row.hour);
   for(const field of metricFields){const matches=row.metrics.filter(m=>m.label===field);if(matches.length!==1)throw Error('分时字段缺失或重复：'+field);const n=metricNumber(field,matches[0]);if(n===null&&!(mode==='全店托管'&&field==='总花费(元)'))throw Error('非托管分时缺少金额：'+field);if(n===null)totals[field]=null;else if(totals[field]!==null)totals[field]=(totals[field]||0)+n;}
  }
- if(!partial&&seen.size!==24)throw Error('历史分时不完整：'+seen.size+'/24');return {complete:!partial&&seen.size===24,hourCount:seen.size,totals};
+ if(!partial&&seen.size!==24)throw Error('历史分时不完整：'+seen.size+'/24');return {complete:!partial&&seen.size===24,hourCount:seen.size,totals,financialComplete:totals['总花费(元)']!==null,unavailableFields:Object.entries(totals).filter(([,v])=>v===null).map(([label])=>({label,state:'not-provided'}))};
 }
 export function reconcileProduct(row,hourTotals){
  const differences=[];for(const label of metricFields){const m=row.metrics.find(v=>v.label===label);if(!m)continue;let n;try{n=metricNumber(label,m);}catch{continue;}if(n!==null&&hourTotals[label]!==null&&hourTotals[label]!==undefined&&n!==hourTotals[label])differences.push({label,daily:n,hourly:hourTotals[label]});}return {matched:differences.length===0,differences};
@@ -31,3 +31,32 @@ export function reconcileAccount(products,totals){
 export function validateOverall(summary,hourTotals){
  const totals={};for(const field of metricFields){const values=(summary||[]).filter(m=>m.label===field);if(values.length!==1)throw Error('数据概况表格合计指标缺失或不唯一：'+field);const n=metricNumber(field,values[0]);if(n===null)throw Error('数据概况表格合计指标不可为空：'+field);if(n!==hourTotals[field])throw Error('数据概况表格合计指标与分时不一致：'+field);totals[field]=n;}return {complete:true,totals};
 }
+
+// A missing column is not a missing cell: only a verified managed-link header
+// can establish that the platform did not expose per-link spend.
+export function normalizeManagedHours(hours,mode,availability){
+ const output=structuredClone(hours);
+ if(mode!=='全店托管')return output;
+ for(const row of output){
+  const matches=row.metrics.filter(m=>m.label==='总花费(元)');
+  if(!matches.length&&availability?.totalSpend?.state==='not-provided'&&availability.totalSpend.basis==='observed-report-headers'&&availability.totalSpend.scope==='promotion-link'){
+   row.metrics.push({label:'总花费(元)',current:null,state:'not-provided',reason:'managed-report-has-no-link-spend-column',scope:'promotion-link'});
+  }
+ }
+ return output;
+}
+export function managedSharedRecord(shop,date,products,reconciliation){
+ const managed=products.filter(p=>p.mode==='全店托管');if(!managed.length)return null;
+ const cost=reconciliation.find(r=>r.field==='总花费(元)'),allUnavailable=managed.every(p=>p.metrics.find(m=>m.label==='总花费(元)')?.state==='not-provided');
+ if(cost?.unallocated<0)throw Error('已知链接花费超过账户花费，不能记录为托管共享花费');
+ return {groupId:JSON.stringify([shop,date,'全店托管']),scope:'managed-group',mode:'全店托管',date,timeZone:'Asia/Shanghai',allocationPolicy:'never-allocate-to-links',
+  spend:{amountFen:allUnavailable&&cost?cost.unallocated:null,state:allUnavailable&&cost?'derived':'not-determined',basis:'account-total-minus-reported-link-spend',directObservation:false,interpretation:'managed-shared-spend-per-user-confirmed-rule',accountTotalFen:cost?.account??null,reportedLinkSpendFen:cost?.reportedProductSum??null},
+  settings:{dailyBudget:{value:null,state:'not-collected',scope:'managed-group',unit:'CNY-yuan'},targetRoas:{value:null,state:'not-collected',scope:'managed-group',unit:'ratio'}},
+  links:managed.map(p=>({productId:p.productId,adId:p.adId||null,mode:p.mode}))};
+}
+export const recordingGuide={schemaVersion:'recording-scopes-1',purpose:'accurate-recording-for-later-analysis',timeZone:'Asia/Shanghai',moneyUnit:'CNY-fen-in-validation-and-derived-records; displayed-metrics-retain-yuan',
+ scopes:{'account-day':'account overview table totals and promotion-link daily details; hourly is account-level','unit-day':'one promotion ID and mode for one day; hourly is link-level','managedShared':'one shared managed group for one shop label and date, never a per-link cost'},
+ valueUnits:{displayedMetrics:'current preserves page strings; money in yuan',validationTotals:'money labels ending (元) use integer fen; counts use numeric counts',managedSharedSpend:'amountFen is integer CNY fen'},
+ completeness:'validation.complete means recorded hours/provided fields; financialComplete only indicates total-spend availability, never profit or final settlement',
+ missingValues:'null/not-provided is not zero; not-collected settings are unknown',derivedValues:'managedShared.spend is an explicit arithmetic difference under the user-confirmed shared-cost rule, not a direct platform observation',
+ aggregation:'account totals, managed shared totals and link totals overlap; never sum them as separate spend',shopIdentity:'shop is a local note, not verified platform identity',currentTask:'Use lastJob.datasets keys for the current task; other warehouse entries are historical'};

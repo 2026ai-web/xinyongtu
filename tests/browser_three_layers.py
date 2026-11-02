@@ -58,7 +58,7 @@ with sync_playwright() as p:
       return {job,data:await store.export('offline-three-layer'),budgetClicks,evidence:evidence.diagnostics.dateEvidence};
     }''')
     assert result['job']['phase']=='complete',result
-    assert result['job']['coverage']=={'accountDays':1,'expectedDays':1,'unitDays':2,'expectedUnitDays':2},result
+    assert result['job']['coverage']=={'accountDays':1,'expectedDays':1,'unitDays':2,'expectedUnitDays':2,'unavailableLinkSpendDays':0},result
     account=next(d for d in result['data']['datasets'] if d['type']=='account-day')
     units=[d for d in result['data']['datasets'] if d['type']=='unit-day']
     assert len(account['summary'])==6 and len(account['products'])==2 and len(units)==2,result
