@@ -9,25 +9,29 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
  const check=()=>signal?.throwIfAborted();
  const wait=ms=>new Promise((resolve,reject)=>{check();const done=()=>{signal?.removeEventListener('abort',abort);resolve();},t=setTimeout(done,ms),abort=()=>{clearTimeout(t);reject(signal.reason||new DOMException('已停止','AbortError'));};signal?.addEventListener('abort',abort,{once:true});});
  async function current(){check();const tab=await api.tabs.get(controlled);checkedReportURL(tab.url);const [active]=await api.tabs.query({active:true,windowId:tab.windowId});if(active?.id!==controlled)throw Error('标签页已切换，任务暂停；点击一键采集可继续');if(expectedURL&&tab.url!==expectedURL)throw Error('报表地址被改变，任务暂停');return tab;}
- async function read(command={action:'read'}){await current();const results=await api.scripting.executeScript({target:{tabId:controlled},func:batchReportDocument,args:[command]});const data=results[0]?.result;if(data?.protocol!=='batch-dom-1'||data.action!==command.action)throw Error('采集模块版本或动作回执不一致，请更新扩展后重试');lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,performance:data.performance,error:data.error};onDiagnostic(data);if(data.performance?.durationMs>250)throw Error('页面解析耗时超过250毫秒，已暂停以避免持续卡顿；请导出诊断');if(data.error)throw Error(data.error);return data;}
+ async function read(command={action:'read'}){await current();const results=await api.scripting.executeScript({target:{tabId:controlled},func:batchReportDocument,args:[command]});const data=results[0]?.result;if(data?.protocol!=='batch-dom-1'||data.action!==command.action)throw Error('采集模块版本或动作回执不一致，请更新扩展后重试');lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,summaryEvidence:data.diagnostics?.summaryEvidence,scroll:data.scroll,performance:data.performance,error:data.error};onDiagnostic(data);if(data.performance?.durationMs>250)throw Error('页面解析耗时超过250毫秒，已暂停以避免持续卡顿；请导出诊断');if(data.error)throw Error(data.error);return data;}
  async function stable(date){let last=null,steady=0;for(let n=0;n<30;n++){await wait(400);const t=await current();if(t.status==='loading')continue;let d;try{d=await read();if(d.context.loading)throw Error('报表仍在加载');if(date)assertDay(d,date);}catch(e){if(n===29)throw e;continue;}const fingerprint=JSON.stringify([d.context,d.summary,d.products,d.hourly]);if(last===fingerprint){steady++;if(steady>=2)return d;}else steady=0;last=fingerprint;}throw Error('报表加载未稳定，已暂停');}
  async function navigate(raw){const u=checkedReportURL(raw);expectedURL=u.href;await api.tabs.update(controlled,{url:u.href});return stable();}
  async function overview(raw,date){await navigate(raw);await read({action:'all-mode'});await stable();for(let n=0;n<40;n++){const result=await read({action:'date-step',start:date,end:date});await wait(350);if(result.kind==='date-selected'){await stable(date);return;}}throw Error('日期切换超出40步，已暂停');}
  async function scan(date,{account=false}={}){
-  await read({action:'table'});await stable(date);if(account){await read({action:'first-page'});await stable(date);}const products=new Map(),hours=new Map();let expected=null;
+  await read({action:'table'});await stable(date);if(account){await read({action:'first-page'});await stable(date);}const products=new Map(),hours=new Map(),overall=new Map();let expected=null;
   for(let page=1;page<=20;page++){
    await read({action:'scroll-init'});
-   for(let step=0;step<100;step++){
-    await wait(150);const d=await read();assertDay(d,date);if(d.expectedRows!==null){if(expected!==null&&expected!==d.expectedRows)throw Error('列表总条数在扫描期间变化');expected=d.expectedRows;}
+   const observe=d=>{
+    assertDay(d,date);if(d.expectedRows!==null){if(expected!==null&&expected!==d.expectedRows)throw Error('列表总条数在扫描期间变化');expected=d.expectedRows;}
     mergeRows(products,d.products,rowKey);mergeRows(hours,d.hourly,r=>r.hour);
-    const action=await read({action:'scroll-next'});if(action.kind==='end')break;if(step===99)throw Error('滚动扫描超过上限');
+    for(const metric of d.summary||[]){const previous=overall.get(metric.label);if(previous&&JSON.stringify(previous)!==JSON.stringify(metric))throw Error('扫描期间整体指标冲突：'+metric.label);overall.set(metric.label,metric);}
+   };
+   for(let step=0;step<100;step++){
+    await wait(150);const d=await read();if(d.context.loading){observe(await stable(date));continue;}observe(d);
+    let action=await read({action:'scroll-next'});if(action.kind==='end'){observe(await stable(date));action=await read({action:'scroll-next',recheck:true});if(action.kind==='end')break;}if(step===99)throw Error('滚动扫描超过上限');
    }
    if(!account||expected!==null&&products.size===expected)break;
    if(expected===null||products.size>expected)throw Error('无法确认商品总条数或存在重复推广身份');
    await read({action:'page',page:page+1});await stable(date);if(page===20)throw Error('商品分页超过20页');
   }
   if(account&&(expected===null||products.size!==expected))throw Error('商品列表未完整覆盖');
-  const final=await read();assertDay(final,date);return {context:final.context,summary:final.summary,products:[...products.values()],hourly:[...hours.values()].sort((a,b)=>a.hour-b.hour),expectedRows:expected};
+  const final=await read();assertDay(final,date);return {context:final.context,summary:[...overall.values()],products:[...products.values()],hourly:[...hours.values()].sort((a,b)=>a.hour-b.hour),expectedRows:expected};
  }
  async function openUnit(row,date,overviewURL){
   if(row.unitURL){const u=checkedReportURL(row.unitURL,UNIT);u.searchParams.set('beginDate',date);u.searchParams.set('endDate',date);await navigate(u.href);return verifyUnit(row,date);}

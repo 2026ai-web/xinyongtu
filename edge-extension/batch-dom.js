@@ -10,7 +10,35 @@ export function batchReportDocument(command={action:'read'}){
  const day=v=>/^20\d{2}-\d{2}-\d{2}$/.test(v)&&!isNaN(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
  const text=e=>{if(!textCache.has(e))textCache.set(e,(e.innerText||e.textContent||'').trim());return textCache.get(e);};
  const quick=extra=>({protocol,action:command.action,performance:{durationMs:Math.round(performance.now()-started)},...extra});
- if(command.action==='scroll-next'){const state=globalThis.__xinyongtuBatchScroll;if(!state)throw Error('扫描滚动状态失效');while(state.index<state.targets.length){const e=state.targets[state.index];if(e.isConnected&&e.scrollLeft+e.clientWidth<e.scrollWidth-3){e.scrollLeft+=Math.max(100,e.clientWidth*.75);return quick({kind:'scrolled'});}if(e.isConnected&&e.scrollTop+e.clientHeight<e.scrollHeight-3){e.scrollLeft=0;e.scrollTop+=Math.max(100,e.clientHeight*.75);return quick({kind:'scrolled'});}state.index++;}return quick({kind:'end'});}
+ // Page roots and empty/lazy nested report scrollers are discoverable even
+ // before a product or hourly row exists. Never infer coverage from scroll end.
+ const scrollInfo=e=>({tag:e.tagName,className:String(e.className||'').slice(0,100),top:Math.round(e.scrollTop),left:Math.round(e.scrollLeft),maxTop:Math.max(0,e.scrollHeight-e.clientHeight),maxLeft:Math.max(0,e.scrollWidth-e.clientWidth)});
+ const discoverScrollers=()=>{
+  const roots=[document.scrollingElement||document.documentElement].filter(Boolean),found=[];
+  for(const e of new Set([...roots,...document.querySelectorAll('main,section,div,[role="main"],[role="grid"],[role="table"]')])){
+   if(e.clientHeight<20||e.clientWidth<20||e.scrollHeight<=e.clientHeight+3&&e.scrollWidth<=e.clientWidth+3)continue;
+   if(!shown(e))continue;const css=getComputedStyle(e);
+   if(roots.includes(e)||/auto|scroll/.test(css.overflowY+' '+css.overflowX)||/hidden/.test(css.overflowX)&&e.scrollWidth>e.clientWidth+3)found.push(e);
+  }
+  if(found.length>64)throw Error('可滚动区域超过64个，无法确认完整遍历');return found;
+ };
+ if(command.action==='scroll-init'){
+  const targets=discoverScrollers();globalThis.__xinyongtuBatchScroll={targets,settled:0};
+  for(const e of targets)e.scrollTo({top:0,left:0,behavior:'instant'});
+  return quick({kind:'scroll-ready',scroll:{targets:targets.map(scrollInfo)}});
+ }
+ if(command.action==='scroll-next'){
+  const state=globalThis.__xinyongtuBatchScroll;if(!state)throw Error('扫描滚动状态失效');if(command.recheck)state.finished=false;if(state.finished)return quick({kind:'end'});
+  // Newly mounted virtual/lazy tables are found when known scrollers finish.
+  let target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||e.scrollTop+e.clientHeight<e.scrollHeight-3));
+  if(!target){for(const e of discoverScrollers())if(!state.targets.includes(e))state.targets.push(e);target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||e.scrollTop+e.clientHeight<e.scrollHeight-3));}
+  if(!target){state.settled++;state.finished=state.settled>=3;return quick({kind:state.finished?'end':'settling',scroll:{targets:state.targets.filter(e=>e.isConnected).map(scrollInfo)}});}
+  state.settled=0;const before=scrollInfo(target);
+  if(target.scrollLeft+target.clientWidth<target.scrollWidth-3)target.scrollTo({left:Math.min(before.maxLeft,target.scrollLeft+Math.max(100,target.clientWidth*.75)),top:target.scrollTop,behavior:'instant'});
+  else target.scrollTo({left:0,top:Math.min(before.maxTop,target.scrollTop+Math.max(100,target.clientHeight*.75)),behavior:'instant'});
+  const after=scrollInfo(target);if(before.top===after.top&&before.left===after.left)return quick({kind:'blocked',error:'滚动区域未响应，不能确认完整采集',scroll:{before,after}});
+  return quick({kind:'scrolled',scroll:{before,after,targetCount:state.targets.length}});
+ }
  // Switching presentation must not parse rows or rebuild metric headers.
  if(command.action==='table'){
   const candidates=[...document.querySelectorAll('button,a,span,div,[role="button"]')].filter(e=>{
@@ -106,24 +134,28 @@ export function batchReportDocument(command={action:'read'}){
  const hourly=[];for(const row of rows){const raw=text(row),m=/^\s*(\d{1,2}):00\s*[~～至—–-]\s*(\d{1,2}):(00|59)/.exec(raw);if(!m)continue;const hour=Number(m[1]);if(hour>23||!(Number(m[2])===hour+1&&m[3]==='00'||Number(m[2])===hour&&m[3]==='59'))continue;hourly.push({hour,metrics:fieldsFor(row)});}
  // Read displayed overall cards independently of table/hourly totals.
  // Accept one current value immediately following a label; do not invent totals.
- const summary=[];
+ const summary=[],summaryEvidence=[];
  for(const label of columns){
   const candidates=[];
   for(const e of exactElements(label)){
    if(e.closest(rowSelector)||e.closest('thead,[role="columnheader"]'))continue;
-   for(let p=e.parentElement,depth=0;p&&p!==document.body&&depth<4;depth++,p=p.parentElement){
-    const raw=text(p);if(raw.length>350||p.querySelector('table,[role="table"],[role="grid"]'))break;
-    const leaves=[...p.querySelectorAll('*')].filter(n=>!n.children.length&&shown(n)).map(n=>norm(text(n)));
-    const at=leaves.indexOf(label);if(at<0)continue;
-    if(leaves.filter(t=>columns.includes(t)).length!==1)break;
-    const next=leaves[at+1];if(!next)continue;
-    if(!/^[¥￥]?-?\d[\d,]*(?:\.\d+)?(?:万|亿|%)?$|^[-—–]$/.test(next))break;
-    const parsed=value(next,label);if(parsed.state!=='missing')candidates.push({label,...parsed});break;
+   for(let p=e.parentElement,depth=0;p&&p!==document.body&&depth<5;depth++,p=p.parentElement){
+    const raw=norm(text(p));if(raw.length>500||p.querySelector('table,[role="table"],[role="grid"]'))break;
+    if(columns.some(l=>raw.replace(label,'').includes(l)))break;
+    const at=raw.indexOf(label);if(at<0)continue;
+    // Current values can be split across currency/integer/fraction spans or
+    // be direct text nodes. Comparison values must never replace the first value.
+    const rest=raw.slice(at+label.length).replace(/^[：:]/,'');
+    const m=/^([¥￥]?-?\d[\d,]*(?:\.\d+)?(?:万|亿|%)?|[-—–])(?:元|次|笔)?(?=$|[^\d.,万亿%])/.exec(rest);
+    if(!m){if(rest)summaryEvidence.push({label,state:'unrecognized-current-value',tag:p.tagName,className:String(p.className||'').slice(0,100)});continue;}
+    const parsed=value(m[1],label);if(parsed.state!=='missing')candidates.push({label,...parsed});break;
    }
   }
   if(candidates.length===1)summary.push(candidates[0]);
   else if(candidates.length>1)diagnostics.missing.push('整体指标候选不唯一：'+label);
+  summaryEvidence.push({label,candidates:candidates.length});
  }
+ diagnostics.summaryEvidence=summaryEvidence;
  const counts=[...new Set([...norm(document.body.innerText).matchAll(/(?:合计数据\(?|共)(\d+)条/g)].map(m=>Number(m[1])))];const expectedRows=counts.length===1?counts[0]:null;
  const context={route,origin:location.origin,dates,primaryVerified,selectedMode,loading:[...document.querySelectorAll('[aria-busy="true"],[class*="loading-mask"],[class*="loadingMask"],[class*="spin-spinning"]')].some(shown),productId:route===unit&&ids.length===1?ids[0]:null,adId:route===unit&&/^\d{6,20}$/.test(adId||'')?adId:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
  const response=extra=>({protocol,action:command.action,context,summary,products,hourly,expectedRows,diagnostics,performance:{durationMs:Math.round(performance.now()-started)},...extra});
@@ -141,10 +173,6 @@ export function batchReportDocument(command={action:'read'}){
   if(!Number.isInteger(command.page)||command.page<1||command.page>100)throw Error('分页参数无效');
   const containers=[...document.querySelectorAll('nav,[role="navigation"],[class*="pagination"],[class*="Pagination"]')].filter(shown);const controls=[];for(const c of containers)for(const e of c.querySelectorAll('button,a,li,[role="button"]'))if(shown(e)&&norm(text(e))===String(command.page)&&!e.querySelector('button,a,[role="button"]')&&!e.disabled&&!/disabled/i.test(String(e.className)))if(!controls.includes(e))controls.push(e);
   if(controls.length!==1)throw Error('未找到唯一明确的报表页码 '+command.page);controls[0].click();return response({kind:'page-requested'});
- }
- if(command.action==='scroll-init'){
-  const ancestors=new Set([document.scrollingElement]);for(const row of rows)for(let p=row.parentElement;p&&p!==document.body;p=p.parentElement)ancestors.add(p);
-  const targets=[...ancestors].filter(e=>true&&shown(e)&&((e.scrollHeight>e.clientHeight+4&&/auto|scroll|hidden/.test(getComputedStyle(e).overflowY))||(e.scrollWidth>e.clientWidth+4&&/auto|scroll|hidden/.test(getComputedStyle(e).overflowX)))&&(/商品\s*ID|\d{1,2}:00/.test(text(e))));globalThis.__xinyongtuBatchScroll={targets:targets.slice(0,6),index:0};for(const e of targets.slice(0,6))e.scrollTo({top:0,left:0,behavior:'instant'});return response({kind:'scroll-ready'});
  }
  if(command.action==='date-step'){
   const start=command.start,end=command.end||start;if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
