@@ -4,7 +4,7 @@ export async function runBatch({shop,days,startDate=null,endDate=null,store,driv
  job.collectionContract='three-layer-table-3';
  const owner=crypto.randomUUID();await store.claim(owner);let leaseError=null;const heartbeat=setInterval(()=>store.claim(owner).catch(e=>{leaseError=e;}),15000);
  const check=()=>{signal?.throwIfAborted();if(leaseError)throw leaseError;};
- async function checkpoint(message){check();job.updatedAt=new Date().toISOString();job.log.push({at:job.updatedAt,message});job.log=job.log.slice(-100);await store.saveJob(job);onProgress(message,job);}
+ async function checkpoint(message){check();if(driver.measurements)job.performance=driver.measurements();job.updatedAt=new Date().toISOString();job.log.push({at:job.updatedAt,message});job.log=job.log.slice(-100);await store.saveJob(job);onProgress(message,job);}
  async function save(data){check();const key=await store.saveDataset({schemaVersion:'report-dataset-1',shop,origin:'https://yingxiao.pinduoduo.com',capturedAt:new Date().toISOString(),...data,recordContext:{scope:data.type==='account-day'?'account':'promotion-link',date:data.date,timeZone:'Asia/Shanghai',period:'complete-day',mode:data.mode,productId:data.productId||null,adId:data.adId||null,amountsNotAllocated:true}});if(!job.datasets.includes(key))job.datasets.push(key);return key;}
  try{
   job.phase='account';job.failures=[];await checkpoint('开始采集历史账户与商品明细');
@@ -16,8 +16,8 @@ export async function runBatch({shop,days,startDate=null,endDate=null,store,driv
   for(const date of job.dates){const data=await store.dataset(job.completedDays[date]);for(const row of data.products){check();try{const identity=row.productId+'|'+row.mode+'|'+(row.adId||'unresolved'),unit=job.units[identity]??={completed:{}};if(unit.completed[date])continue;await checkpoint(date+' 商品 '+row.productId+' · '+row.mode);
     let binding=unit.binding;
     if(!binding){binding=await driver.openUnit(row,date,overviewURL);unit.binding=binding;await checkpoint('已确认商品 '+row.productId+' 的推广 ID '+binding.adId);}
-    else {const url=new URL(binding.url);url.searchParams.set('beginDate',date);url.searchParams.set('endDate',date);await driver.navigate(url.href);await driver.verifyUnit({...row,adId:binding.adId},date);}
-    const hourlyData=await driver.scan(date);hourlyData.hourly=normalizeManagedHours(hourlyData.hourly,row.mode,hourlyData.fieldAvailability);const validation=validateHours(hourlyData.hourly,row.mode),reconciliation=reconcileProduct(row,validation.totals);if(!reconciliation.matched)throw Error('单链接分时与日汇总不一致：'+reconciliation.differences.map(d=>d.label).join('、'));
+    else {const url=new URL(binding.url);url.searchParams.set('beginDate',date);url.searchParams.set('endDate',date);const ready=await driver.navigate(url.href);await driver.verifyUnit({...row,adId:binding.adId},date,ready);}
+    const hourlyData=await driver.scan(date,{mode:row.mode});hourlyData.hourly=normalizeManagedHours(hourlyData.hourly,row.mode,hourlyData.fieldAvailability);const validation=validateHours(hourlyData.hourly,row.mode),reconciliation=reconcileProduct(row,validation.totals);if(!reconciliation.matched)throw Error('单链接分时与日汇总不一致：'+reconciliation.differences.map(d=>d.label).join('、'));
     unit.completed[date]=await save({type:'unit-day',date,mode:row.mode,productId:row.productId,adId:binding.adId,...hourlyData,dailyOverall:{...structuredClone(row),adId:binding.adId,date,scope:'promotion-link'},sharedManagedGroupRef:row.mode==='全店托管'?(data.managedShared?.groupId||null):null,validation,reconciliation});unit.unavailableSpendDays??={};unit.unavailableSpendDays[date]=!validation.financialComplete;await checkpoint('已保存 '+date+' 商品 '+row.productId+' 的24小时数据');
    }catch(e){if(signal?.aborted||leaseError)throw e;job.failures.push({stage:'units',date,productId:row.productId,mode:row.mode,at:new Date().toISOString(),message:e.message||String(e),diagnostic:driver.diagnostic?.()});await checkpoint('该链接未完成，保留诊断并继续其他链接：'+row.productId+'；'+e.message);}}}
   const unitCount=Object.values(job.units).reduce((n,u)=>n+Object.keys(u.completed).length,0);
@@ -25,6 +25,6 @@ export async function runBatch({shop,days,startDate=null,endDate=null,store,driv
   job.phase=job.failures.length||unitCount!==job.targetUnitDays?'blocked':'complete';
   await checkpoint(job.phase==='complete'?'记录完成：整体、链接及逐小时已保存；平台未提供字段保留缺失，托管共享花费不分摊':'采集未完成：'+unitCount+'/'+job.targetUnitDays+' 条链接日记录，请导出诊断');return job;
 
- }catch(e){const stoppedStage=job.phase;job.phase=signal?.aborted?'paused':'blocked';job.failures.push({stage:stoppedStage,at:new Date().toISOString(),message:e.message||String(e),diagnostic:driver.diagnostic?.()});job.updatedAt=new Date().toISOString();await store.saveJob(job);onProgress('已暂停：'+job.failures.at(-1).message,job);return job;}
+ }catch(e){if(driver.measurements)job.performance=driver.measurements();const stoppedStage=job.phase;job.phase=signal?.aborted?'paused':'blocked';job.failures.push({stage:stoppedStage,at:new Date().toISOString(),message:e.message||String(e),diagnostic:driver.diagnostic?.()});job.updatedAt=new Date().toISOString();await store.saveJob(job);onProgress('已暂停：'+job.failures.at(-1).message,job);return job;}
  finally{clearInterval(heartbeat);await store.release(owner);await driver.close();}
 }

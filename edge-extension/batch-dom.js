@@ -26,16 +26,16 @@ export function batchReportDocument(command={action:'read'}){
   if(found.length>64)throw Error('可滚动区域超过64个，无法确认完整遍历');return found;
  };
  if(command.action==='scroll-init'){
-  const targets=discoverScrollers();globalThis.__xinyongtuBatchScroll={targets,settled:0};
+  const targets=discoverScrollers(),changed=targets.some(e=>e.scrollTop!==0||e.scrollLeft!==0);globalThis.__xinyongtuBatchScroll={targets,settled:0};
   for(const e of targets)e.scrollTo({top:0,left:0,behavior:'instant'});
-  return quick({kind:'scroll-ready',scroll:{targets:targets.map(scrollInfo)}});
+  return quick({kind:'scroll-ready',changed,scroll:{targets:targets.map(scrollInfo)}});
  }
  if(command.action==='scroll-next'){
   const state=globalThis.__xinyongtuBatchScroll;if(!state)throw Error('扫描滚动状态失效');if(command.recheck)state.finished=false;if(state.finished)return quick({kind:'end'});
   // Newly mounted virtual/lazy tables are found when known scrollers finish.
-  let target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||e.scrollTop+e.clientHeight<e.scrollHeight-3));
-  if(!target){for(const e of discoverScrollers())if(!state.targets.includes(e))state.targets.push(e);target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||e.scrollTop+e.clientHeight<e.scrollHeight-3));}
-  if(!target){state.settled++;state.finished=state.settled>=3;return quick({kind:state.finished?'end':'settling',scroll:{targets:state.targets.filter(e=>e.isConnected).map(scrollInfo)}});}
+  let target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||!command.skipVertical&&e.scrollTop+e.clientHeight<e.scrollHeight-3));
+  if(!target){for(const e of discoverScrollers())if(!state.targets.includes(e))state.targets.push(e);target=state.targets.find(e=>e.isConnected&&(e.scrollLeft+e.clientWidth<e.scrollWidth-3||!command.skipVertical&&e.scrollTop+e.clientHeight<e.scrollHeight-3));}
+  if(!target){state.settled++;state.finished=state.settled>=3;return quick({kind:state.finished?'end':'settling',scroll:{skipVertical:Boolean(command.skipVertical),targets:state.targets.filter(e=>e.isConnected).map(scrollInfo)}});}
   state.settled=0;const before=scrollInfo(target);
   if(target.scrollLeft+target.clientWidth<target.scrollWidth-3)target.scrollTo({left:Math.min(before.maxLeft,target.scrollLeft+Math.max(100,target.clientWidth*.75)),top:target.scrollTop,behavior:'instant'});
   else target.scrollTo({left:0,top:Math.min(before.maxTop,target.scrollTop+Math.max(100,target.clientHeight*.75)),behavior:'instant'});

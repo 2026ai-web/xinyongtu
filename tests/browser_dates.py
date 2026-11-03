@@ -17,7 +17,7 @@ with sync_playwright() as p:
   result=page.evaluate('''async()=>{
    const {batchReportDocument:dom}=await import('/extension/batch-dom.js');const {createBatchDriver,assertDay}=await import('/extension/batch-driver.js');const {runBatch}=await import('/extension/batch-runner.js');const {createBatchStore}=await import('/extension/batch-store.js');
    const fields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量'];
-   let current=['2026-10-26','2026-11-01'],pending=[],month='2026-11',tableMode=false,budgetClicks=0,calendarOpens=0,confirms=0,selected=[];const observations=[],urlEvents=[];
+   let current=['2026-10-26','2026-11-01'],pending=[],month='2026-11',tableMode=false,budgetClicks=0,calendarOpens=0,confirms=0,selected=[];const observations=[],urlEvents=[];let droppedDateReceipt=false;
    const inputs=()=>[...document.querySelectorAll('.primary input')];
    function report(){const single=current[0]===current[1],amount=single?Number(current[0].slice(-2))%7+1:999;
     const total=24*amount,header=fields.map(f=>'<th>'+f+'</th>').join('');
@@ -39,15 +39,15 @@ with sync_playwright() as p:
     document.querySelector('#table').onclick=()=>{tableMode=true;report();};document.querySelector('#budget').onclick=()=>budgetClicks++;report();
    }
    render(location.href);
-   const api={tabs:{get:async()=>({id:1,windowId:1,url:location.href,status:'complete'}),query:async()=>[{id:1}],update:async(id,c)=>{if(c.url)render(c.url)},remove:async()=>{}},scripting:{executeScript:async({func,args})=>[{result:func(...args)}]}};
+   const api={tabs:{get:async()=>({id:1,windowId:1,url:location.href,status:'complete'}),query:async()=>[{id:1}],update:async(id,c)=>{if(c.url)render(c.url)},remove:async()=>{}},scripting:{executeScript:async({func,args})=>{const result=func(...args);if(!droppedDateReceipt&&args[0].action==='date-step'&&result.kind==='date-cell-selected'&&result.dateSelection.phase==='confirm'){droppedDateReceipt=true;return [];}return [{result}];}}};
    const store=createBatchStore();await store.clear();const driver=createBatchDriver({tabId:1,api,onDiagnostic:d=>{if(d.action==='url-guard')urlEvents.push(d.urlGuard);if(d.action==='date-step')observations.push({kind:d.kind,dateSelection:d.dateSelection});}});
    const job=await runBatch({shop:'date-fixture',days:7,store,driver,overviewURL:location.href,now:Date.parse('2026-11-02T01:00:00Z')});
    const data=await store.export('date-fixture');if(job.phase!=='complete')throw Error(JSON.stringify({phase:job.phase,failures:job.failures,tail:observations.slice(-3)}));
    for(const row of data.datasets){const amount=Number(row.date.slice(-2))%7+1;if(row.hourly.length!==24||row.validation.totals['总花费(元)']!==24*amount*100)throw Error('range aggregate saved under a day');if(row.context.dates.length!==1||row.context.dates[0]!==row.date)throw Error('rendered date differs from stored date');}
-   if(!urlEvents.some(e=>e.accepted))throw Error('no auto date URL transition exercised');if(data.datasets.length!==14)throw Error('seven days x account/link missing');
+   if(!droppedDateReceipt||driver.measurements().dateReceiptRecoveries!==1)throw Error('lost date receipt recovery not exercised');if(!urlEvents.some(e=>e.accepted))throw Error('no auto date URL transition exercised');if(data.datasets.length!==14)throw Error('seven days x account/link missing');
    const comparison=[...document.querySelectorAll('nav:nth-of-type(2) input')].map(e=>e.value);if(comparison.join(',')!=='2026-10-19,2026-10-25')throw Error('comparison dates were modified');
    if(budgetClicks)throw Error('ad operation touched');
-   return {days:job.dates,coverage:job.coverage,records:data.datasets.length,acceptedDateURLChanges:urlEvents.filter(e=>e.accepted).length,calendarOpens,confirms,selectedDateClicks:selected.length,monthNavigation:observations.filter(o=>o.kind==='calendar-month-requested').length,comparison,budgetClicks};
+   return {days:job.dates,coverage:job.coverage,records:data.datasets.length,acceptedDateURLChanges:urlEvents.filter(e=>e.accepted).length,dateReceiptRecoveries:driver.measurements().dateReceiptRecoveries,calendarOpens,confirms,selectedDateClicks:selected.length,monthNavigation:observations.filter(o=>o.kind==='calendar-month-requested').length,comparison,budgetClicks};
   }''')
   print('PASS readonly range -> 7 independent account/link days, pending apply, same-day double selection, month navigation, stale unit range repaired, no comparison or ad changes:',result,flush=True)
  # Panel custom date selection is persisted and previews independent days.
