@@ -1,3 +1,4 @@
+import {createGptExport} from './gpt-export.js';
 import {recordingGuide,requestedDates} from './batch-model.js';
 import {createBatchStore} from './batch-store.js';
 import {createBatchDriver,checkedReportURL,OVERVIEW} from './batch-driver.js';
@@ -25,5 +26,12 @@ export function installBatchPanel({beforeStart,setRunning}){
  };
  $('batchStop').onclick=()=>{controller?.abort(new DOMException('用户停止，已保存进度可继续','AbortError'));status('正在停止并保存断点…');};
  $('batchExport').onclick=async()=>{try{const warehouse=await store.export($('shopLabel').value.trim()),payload={...warehouse,recordingGuide,extensionVersion:chrome.runtime?.getManifest?.().version||'unknown',lastJob,diagnostic,diagnosticHistory};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-batch-reports.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){status('导出失败：'+e.message);}};
+ $('batchGptExport').onclick=async()=>{try{
+  if(controller)throw Error('请先停止或等待采集完成，再导出最近任务');
+  const shop=$('shopLabel').value.trim();if(!shop)throw Error('请填写店铺备注');
+  const warehouse=await store.export(shop),job=await store.latest(shop),payload=createGptExport(warehouse,job,{extensionVersion:chrome.runtime?.getManifest?.().version||'unknown'});
+  const url=URL.createObjectURL(new Blob([JSON.stringify(payload)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-gpt-'+job.dates[0]+'-'+job.dates.at(-1)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status('GPT精简导出已生成：最近任务 '+job.dates[0]+' 至 '+job.dates.at(-1)+'；'+(payload.task.complete?'完整':'未完成，请查看缺失与校验说明')+'。文件仅下载到本机，未发送给GPT。');
+ }catch(e){status('GPT导出失败：'+e.message);}};
  $('batchClear').onclick=async()=>{if(controller){status('请先停止采集再清理仓库');return;}if(!confirm('请先导出备份。确定清空全部店铺的一键采集仓库？'))return;try{await store.clear();lastJob=null;status('一键采集仓库已清空');}catch(e){status(e.message);}};
 }
