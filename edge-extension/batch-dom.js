@@ -95,7 +95,12 @@ export function batchReportDocument(command={action:'read'}){
   const cellDates=e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime'),e.getAttribute('aria-label')].map(cellDay).filter(Boolean);
 
   const calendarNode=e=>!e.matches('input')&&(e.matches('td,button,a,[role="gridcell"],[data-date],[datetime]')||Boolean(e.closest('td,[role="gridcell"]')));
-  const popupCandidates=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>!primary.inputs.some(input=>e.contains(input)));
+  const popupCandidates=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>!datedInputs.some(input=>e.contains(input))).filter(e=>{
+   // A DatePicker component wrapper is not evidence of an open calendar.
+   // Keep explicit popup semantics, calendar shells and actual date cells;
+   // exclude ordinary main/comparison input containers (report 17).
+   return e.matches('[role="dialog"],[role="grid"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"]')||/popup|dropdown|panel|calendar/i.test(String(e.className))||[...e.querySelectorAll('td,button,a,[role="gridcell"],[data-date],[datetime]')].some(n=>calendarNode(n)&&cellDates(n).length);
+  });
   const allPanels=popupCandidates.filter(e=>[...e.querySelectorAll('[title],[data-date],[datetime],[aria-label]')].some(n=>calendarNode(n)&&cellDates(n).length>0));
   diagnostics.calendarCandidates=popupCandidates.slice(0,4).map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dateSamples:[...p.querySelectorAll('td,button,[role=gridcell]')].slice(0,8).map(e=>({title:e.getAttribute('title'),dataDate:e.getAttribute('data-date'),label:e.getAttribute('aria-label')}))}));
   const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));

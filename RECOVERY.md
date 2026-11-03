@@ -175,3 +175,11 @@ browser_dates.py加入“第二次选日后先自动改写URL，再确认/回读
 代码确认旧版只接受补零ISO日期属性，能在离线短格式日历复现panelCount=0。新增短日期/中文/aria-label解析；仍拒绝无年份、无效日期、歧义、禁用日期。目标为北京时间昨天时优先主统计组唯一“昨日”，点击后回读确认，不改对比日期；不生效后可回退日历，其它历史单日继续日历。新增calendarCandidates样例，区分已开但不识别；未知格式不再重复开关。此为已复现代码缺陷及兼容策略修复，不声称已证明报告16所用日历格式，真实后台仍待验收。
 
 测试见TESTING-v0.12.10.md。协议仍three-layer-table-3，同日期同店铺可续采，原数据及旧包保留，不删IndexedDB。更新：备份JSON，解压0.12.10整包运行install.cmd，Edge重新加载并刷新后台，核对版本后继续11月2日任务；不要点桌面更新。本轮不操作真实店铺、不发布Release、不部署，不修改main/release-channel。
+
+## 2026-11-03 v0.12.11：修复报告17的对比日期容器误判
+
+基线recovery/v0.12.1 / 9be9085，修改前工作区干净。报告17确认扩展0.12.10生效，主日期和URL起止日期都是2026-11-02，9个失败在date-step第1步、openAttempts=0。唯一calendarCandidates为CompareDatePicker_wrap__Me_jj、dateSamples空。旧版将常驻对比日期组件误认弹层，导致已正确选日仍被calendar-format-unsupported拦截。这是代码回归，没有证据表明旧插件残留造成；无需删扩展或清空数据。
+
+修复：排除包含日期输入的普通容器，并要求弹层语义、日历标记或日期单元格，不再仅凭Picker类名认定弹层。真实弹层（包括未知格式）仍受原保护。新增browser_comparison_wrapper.py直接运行旧提交复现错误，再检查新版date-selected、无输入框的普通对比容器、真实未知/有效弹层仍识别、对比0点击；browser_three_layers.py完整流程也加入同名容器。结果见TESTING-v0.12.11.md。
+
+协议three-layer-table-3保持，现有4条成功记录保留；更新后同店铺同日期继续。下载0.12.11解压install.cmd、Edge重新加载及刷新后台，确认版本。不要点击桌面更新。旧版本停用保留。真实后台仍待复测；本轮无真实店铺操作、Release、部署、main/release-channel修改。

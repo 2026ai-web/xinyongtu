@@ -7,7 +7,7 @@ origin='https://yingxiao.pinduoduo.com'
 fields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量']
 def document(unit=False):
     main='<nav>今日 昨日 近7日 近30日 近90日 <input class="mainDate" type="date" value="2026-11-01"></nav>'
-    compare='<nav>对比日期<input class="comparisonDate" type="date" value="2026-10-31"></nav>'
+    compare='<nav class="CompareDatePicker_wrap__Me_jj">对比日期<input class="comparisonDate" type="date" value="2026-10-31"></nav>'
     cards='<section><h2>数据概况</h2>'+''.join('<div><span>'+f+'</span><strong>'+('24' if unit else '48')+'</strong><small>较前日 0%</small></div>' for f in fields)+'</section>'
     # Details start in chart view: the hourly table exists only after an explicit toggle.
     total='<tr><td>合计数据（24条）</td>'+''.join('<td>'+('24' if unit else '48')+'</td>' for f in fields)+'</tr>'
