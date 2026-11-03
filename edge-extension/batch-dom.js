@@ -91,14 +91,36 @@ export function batchReportDocument(command={action:'read'}){
   if(command.reset||!state||state.key!==key)state=globalThis.__xinyongtuBatchDate={key,inputs:[...primary.inputs],phase:'start',opened:false,openAttempts:0,steps:0};
   state.steps++;if(state.steps>120)throw Error('日期选择超过120步，未确认生效');
   const wanted=state.phase==='start'?start:end;
+  const cellDay=value=>{const m=String(value||'').trim().match(/^(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})(?:日)?(?:\s+(?:星期|周|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday).*)?$/i);if(!m)return null;const valueDay=m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');return day(valueDay)?valueDay:null;};
+  const cellDates=e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime'),e.getAttribute('aria-label')].map(cellDay).filter(Boolean);
+
   const calendarNode=e=>!e.matches('input')&&(e.matches('td,button,a,[role="gridcell"],[data-date],[datetime]')||Boolean(e.closest('td,[role="gridcell"]')));
-  const allPanels=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>[...e.querySelectorAll('[title],[data-date],[datetime]')].some(n=>calendarNode(n)&&[n.getAttribute('title'),n.getAttribute('data-date'),n.getAttribute('datetime')].some(v=>v&&day(v.replace(/\//g,'-')))));
+  const popupCandidates=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>!primary.inputs.some(input=>e.contains(input)));
+  const allPanels=popupCandidates.filter(e=>[...e.querySelectorAll('[title],[data-date],[datetime],[aria-label]')].some(n=>calendarNode(n)&&cellDates(n).length>0));
+  diagnostics.calendarCandidates=popupCandidates.slice(0,4).map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dateSamples:[...p.querySelectorAll('td,button,[role=gridcell]')].slice(0,8).map(e=>({title:e.getAttribute('title'),dataDate:e.getAttribute('data-date'),label:e.getAttribute('aria-label')}))}));
   const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));
   const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
   diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
   failureDiagnostic=diagnostics;
   const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
-  if(exact&&!panels.length){state.phase='done';return result({kind:'date-selected'});}
+  if(exact&&!popupCandidates.length){state.phase='done';return result({kind:'date-selected'});}
+  // Use a uniquely scoped report shortcut for yesterday before opening a range
+  // picker. Never infer completion from the click: verify actual primary dates.
+  if(state.phase==='start'&&!state.opened&&!state.shortcutTried&&start===end){
+   state.shortcutTried=true;
+   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+   const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+   if(start===yesterday){
+    let group=primary.inputs[0].parentElement;
+    while(group&&group!==document.body&&!(primary.inputs.every(e=>group.contains(e))&&['今日','昨日','近7','近30','近90'].filter(x=>norm(text(group)).includes(x)).length>=3))group=group.parentElement;
+    const shortcuts=group&&group!==document.body?[...group.querySelectorAll('button,a,span,div,[role="button"]')].filter(e=>shown(e)&&norm(text(e))==='昨日'&&!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&![...e.children].some(c=>shown(c)&&norm(text(c))==='昨日')&&!e.closest('[role="dialog"],[class*="picker-dropdown"]')):[];
+    if(shortcuts.length===1){act(()=>shortcuts[0].click());state.phase='shortcut-verify';state.shortcutAt=Date.now();return result({kind:'date-shortcut-requested',shortcut:'昨日'});}
+   }
+  }
+  if(state.phase==='shortcut-verify'){
+   if(Date.now()-state.shortcutAt<2000)return result({kind:'date-shortcut-awaiting-readback'});
+   state.phase='start'; // One failed shortcut may fall back to the calendar.
+  }
   // Native date inputs are the only inputs assigned directly. Text/readonly
   // framework pickers are operated through their visible calendar controls.
   if(primary.inputs.every(e=>e.type==='date'&&!e.readOnly)){
@@ -116,10 +138,10 @@ export function batchReportDocument(command={action:'read'}){
   }
   const range=primary.inputs.length===2||primary.values.length>1||Boolean(primary.inputs[0].closest('[class*="picker-range"],[class*="PickerRange"]'));
   if(state.opened&&panels.length){
-   const rawNodes=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime]')]).filter(e=>calendarNode(e)&&shown(e)&&!e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled')&&!/disabled/i.test(String(e.className))).filter(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].some(v=>v&&v.replace(/\//g,'-')===wanted));
+   const rawNodes=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime],[aria-label]')]).filter(e=>calendarNode(e)&&shown(e)&&!e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled')&&!/disabled/i.test(String(e.className))).filter(e=>cellDates(e).includes(wanted));
    let nodes=[...new Set(rawNodes)].filter(e=>!rawNodes.some(child=>child!==e&&e.contains(child)));
    if(nodes.length>1){const inMonth=nodes.filter(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return /cell-in-view|current-month/.test(String(cell.className))||cell.getAttribute('data-current-month')==='true';});if(inMonth.length===1)nodes=inMonth;}
-   diagnostics.calendar=panels.map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dates:[...new Set([...p.querySelectorAll('[title],[data-date],[datetime]')].flatMap(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].filter(v=>v&&day(v.replace(/\//g,'-')))))].slice(0,65)}));
+   diagnostics.calendar=panels.map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dates:[...new Set([...p.querySelectorAll('[title],[data-date],[datetime],[aria-label]')].flatMap(e=>cellDates(e)))].slice(0,65)}));
    if(nodes.length===1){act(()=>nodes[0].click());state.phase=state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
    if(nodes.length>1)throw Error('目标日期单元格不唯一，未猜测');
    const months=[...new Set(panels.flatMap(p=>[...norm(text(p)).matchAll(/(20\d{2})[年/-](\d{1,2})(?:月|$)/g)].map(m=>m[1]+'-'+m[2].padStart(2,'0'))))].sort();
@@ -130,6 +152,7 @@ export function batchReportDocument(command={action:'read'}){
   }
   // React range pickers commonly open on mousedown/focus, not input.click().
   if(state.opened&&Date.now()-(state.openedAt||0)<1200)return result({kind:'calendar-opening'});
+  if(popupCandidates.length&&!panels.length)return result({kind:'unsupported-calendar',errorCode:'calendar-format-unsupported',recoverable:false,error:'检测到日历弹层，但日期格式暂不支持；已停止重复开关，请保留日期诊断'});
   if(state.openAttempts>=3)return result({kind:'calendar-not-open',errorCode:'calendar-not-open',recoverable:state.phase==='start',error:'主日期控件未打开日历；已等待并尝试主输入框及外层范围控件，请保留日期诊断'});
   const index=state.phase==='end'&&primary.inputs.length===2?1:0,input=primary.inputs[index];
   let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="PickerRange"]')||input.closest('[role="combobox"]')||input.closest('[class*="picker"]')||input;
