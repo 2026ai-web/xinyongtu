@@ -1,3 +1,4 @@
+import {installCostPanel} from './cost-panel.js';
 import {installBatchPanel} from './batch-panel.js';
 let batchRunning=false;
 import {navigateReportEntrance} from './report-navigation.js';
@@ -184,3 +185,5 @@ $('reportMapExport').onclick=()=>download(reportMap,'xinyongtu-report-map.json')
 
 installBatchPanel({beforeStart:()=>{reportNavController?.abort();stopAutomatic();},setRunning:value=>{batchRunning=value;$('advancedTools').inert=value;renderRunState();}});
 new MutationObserver(renderRunState).observe($('batchStatus'),{childList:true,subtree:true,characterData:true});
+
+installCostPanel();

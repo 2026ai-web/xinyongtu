@@ -27,5 +27,5 @@ with sync_playwright() as p, tempfile.TemporaryDirectory(prefix='xinyongtu-gpt-e
  raw,_=download('#batchExport','raw.json');assert len(raw['datasets'])==2 and len(raw['jobs'])==1;assert 'recordingGuide' in raw and 'diagnosticHistory' in raw
  page.evaluate("async()=>{const s=(await import('./batch-store.js')).createBatchStore(),j=await s.latest('offline-gpt');j.phase='blocked';await s.saveJob(j)}")
  partial,_=download('#batchGptExport','partial.json');assert partial['task']['complete'] is False;assert '未完成' in page.locator('#batchStatus').inner_text()
- page.locator('#shopLabel').fill('no-task');page.locator('#batchGptExport').click();assert '尚无可导出' in page.locator('#batchStatus').inner_text();assert not errors,errors
+ page.locator('#shopLabel').fill('no-task');page.locator('#batchGptExport').click();page.wait_for_function("document.querySelector('#batchStatus').textContent.includes('尚无可导出')");assert '尚无可导出' in page.locator('#batchStatus').inner_text();assert not errors,errors
  print('PASS panel GPT export: persisted task after reload, selected UI date not relabeled, compact JSON download, original backup preserved, partial task marked, no-task error; no model/network submission',flush=True);browser.close()
