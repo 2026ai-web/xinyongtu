@@ -12,12 +12,12 @@ with sync_playwright() as p:
   if path.startswith('/extension/'):r.fulfill(body=(root/path.removeprefix('/extension/')).read_text(),content_type='text/html; charset=utf-8' if path.endswith('.html') else 'text/css' if path.endswith('.css') else 'application/javascript')
   else:r.fulfill(body='<html><meta charset="utf-8"><body>offline calendar fixture</body></html>',content_type='text/html; charset=utf-8')
  page.route(origin+'/**',route)
- page.goto(origin+'/goods/report/promotion/overView')
+ page.goto(origin+'/goods/report/promotion/overView?beginDate=2026-10-26&endDate=2026-11-01')
  if '--panel-only' not in sys.argv:
   result=page.evaluate('''async()=>{
    const {batchReportDocument:dom}=await import('/extension/batch-dom.js');const {createBatchDriver,assertDay}=await import('/extension/batch-driver.js');const {runBatch}=await import('/extension/batch-runner.js');const {createBatchStore}=await import('/extension/batch-store.js');
    const fields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量'];
-   let current=['2026-10-26','2026-11-01'],pending=[],month='2026-11',tableMode=false,budgetClicks=0,calendarOpens=0,confirms=0,selected=[];const observations=[];
+   let current=['2026-10-26','2026-11-01'],pending=[],month='2026-11',tableMode=false,budgetClicks=0,calendarOpens=0,confirms=0,selected=[];const observations=[],urlEvents=[];
    const inputs=()=>[...document.querySelectorAll('.primary input')];
    function report(){const single=current[0]===current[1],amount=single?Number(current[0].slice(-2))%7+1:999;
     const total=24*amount,header=fields.map(f=>'<th>'+f+'</th>').join('');
@@ -29,7 +29,7 @@ with sync_playwright() as p:
     const date=new Date(month+'-01T00:00:00Z'),start=new Date(date);start.setUTCDate(1-date.getUTCDay());
     box.innerHTML='<header>'+date.getUTCFullYear()+'年'+(date.getUTCMonth()+1)+'月<button title="上一月">‹</button><button title="下一月">›</button></header><table><tbody>'+Array.from({length:6},(_,r)=>'<tr>'+Array.from({length:7},(_,c)=>{const d=new Date(start.getTime()+(r*7+c)*86400000),day=d.toISOString().slice(0,10);return '<td title="'+day+'" class="'+(day.slice(0,7)===month?'anq-picker-cell-in-view':'')+'"><button title="'+day+'">'+d.getUTCDate()+'</button></td>';}).join('')+'</tr>').join('')+'</tbody></table><button id="apply" '+(pending.length===2?'':'disabled')+'>确定</button>';
     document.body.append(box);
-    for(const td of box.querySelectorAll('td'))td.onclick=()=>{const day=td.title;pending.push(day);selected.push(day);calendar();};
+    for(const td of box.querySelectorAll('td'))td.onclick=()=>{const day=td.title;pending.push(day);selected.push(day);if(pending.length===2){const u=new URL(location.href);u.searchParams.set('beginDate',pending[0]);u.searchParams.set('endDate',pending[1]);history.replaceState(null,'',u.href);}calendar();};
     box.querySelector('[title="上一月"]').onclick=()=>{date.setUTCMonth(date.getUTCMonth()-1);month=date.toISOString().slice(0,7);calendar();};box.querySelector('[title="下一月"]').onclick=()=>{date.setUTCMonth(date.getUTCMonth()+1);month=date.toISOString().slice(0,7);calendar();};
     box.querySelector('#apply').onclick=()=>{if(pending.length!==2)return;current=[...pending];inputs().forEach((e,i)=>e.value=current[i]);confirms++;box.remove();pending=[];report();};
    }
@@ -40,14 +40,14 @@ with sync_playwright() as p:
    }
    render(location.href);
    const api={tabs:{get:async()=>({id:1,windowId:1,url:location.href,status:'complete'}),query:async()=>[{id:1}],update:async(id,c)=>{if(c.url)render(c.url)},remove:async()=>{}},scripting:{executeScript:async({func,args})=>[{result:func(...args)}]}};
-   const store=createBatchStore();await store.clear();const driver=createBatchDriver({tabId:1,api,onDiagnostic:d=>{if(d.action==='date-step')observations.push({kind:d.kind,dateSelection:d.dateSelection});}});
+   const store=createBatchStore();await store.clear();const driver=createBatchDriver({tabId:1,api,onDiagnostic:d=>{if(d.action==='url-guard')urlEvents.push(d.urlGuard);if(d.action==='date-step')observations.push({kind:d.kind,dateSelection:d.dateSelection});}});
    const job=await runBatch({shop:'date-fixture',days:7,store,driver,overviewURL:location.href,now:Date.parse('2026-11-02T01:00:00Z')});
    const data=await store.export('date-fixture');if(job.phase!=='complete')throw Error(JSON.stringify({phase:job.phase,failures:job.failures,tail:observations.slice(-3)}));
    for(const row of data.datasets){const amount=Number(row.date.slice(-2))%7+1;if(row.hourly.length!==24||row.validation.totals['总花费(元)']!==24*amount*100)throw Error('range aggregate saved under a day');if(row.context.dates.length!==1||row.context.dates[0]!==row.date)throw Error('rendered date differs from stored date');}
-   if(data.datasets.length!==14)throw Error('seven days x account/link missing');
+   if(!urlEvents.some(e=>e.accepted))throw Error('no auto date URL transition exercised');if(data.datasets.length!==14)throw Error('seven days x account/link missing');
    const comparison=[...document.querySelectorAll('nav:nth-of-type(2) input')].map(e=>e.value);if(comparison.join(',')!=='2026-10-19,2026-10-25')throw Error('comparison dates were modified');
    if(budgetClicks)throw Error('ad operation touched');
-   return {days:job.dates,coverage:job.coverage,records:data.datasets.length,calendarOpens,confirms,selectedDateClicks:selected.length,monthNavigation:observations.filter(o=>o.kind==='calendar-month-requested').length,comparison,budgetClicks};
+   return {days:job.dates,coverage:job.coverage,records:data.datasets.length,acceptedDateURLChanges:urlEvents.filter(e=>e.accepted).length,calendarOpens,confirms,selectedDateClicks:selected.length,monthNavigation:observations.filter(o=>o.kind==='calendar-month-requested').length,comparison,budgetClicks};
   }''')
   print('PASS readonly range -> 7 independent account/link days, pending apply, same-day double selection, month navigation, stale unit range repaired, no comparison or ad changes:',result,flush=True)
  # Panel custom date selection is persisted and previews independent days.

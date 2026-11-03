@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {metricFields,metricNumber,validateHours,reconcileProduct,requestedDates,datasetKey,reconcileAccount,validateOverall,normalizeManagedHours,managedSharedRecord} from '../edge-extension/batch-model.js';
-import {checkedReportURL,assertDay,mergeRows} from '../edge-extension/batch-driver.js';
+import {checkedReportURL,assertDay,mergeRows,allowedDateURLChange} from '../edge-extension/batch-driver.js';
 import {runBatch} from '../edge-extension/batch-runner.js';
 const metrics=(amount='1')=>metricFields.map(label=>({label,current:amount,state:'exact'}));const hourly=()=>Array.from({length:24},(_,hour)=>({hour,metrics:metrics()}));
 test('Beijing calendar excludes today across UTC date boundary',()=>assert.deepEqual(requestedDates(1,Date.parse('2026-10-30T17:00:00Z')),['2026-10-30']));
@@ -68,4 +68,10 @@ test('same-length custom ranges never reuse a different date task',async()=>{
  const f=fixture(),base={shop:'fixture',days:1,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-02T01:00:00Z')};
  const a=await runBatch({...base,startDate:'2026-10-28',endDate:'2026-10-29'});assert.equal(a.phase,'complete');
  const b=await runBatch({...base,startDate:'2026-10-30',endDate:'2026-10-31'});assert.notEqual(a.id,b.id);assert.deepEqual(b.dates,['2026-10-30','2026-10-31']);assert.equal(b.dateSelection.perDay,true);assert.equal(f.datasets.size,8);
+});
+
+test('only owned date query changes preserve route, promotion identity and other filters',()=>{
+ const before='https://yingxiao.pinduoduo.com/goods/report/promotion/unit?adId=9146588221&scenesMode=3&beginDate=2026-10-27&endDate=2026-11-02&filter=all';
+ const next=before.replace('endDate=2026-11-02','endDate=2026-10-27');assert.equal(allowedDateURLChange(before,next,'2026-10-27'),true);assert.equal(allowedDateURLChange(before+'&filter=other',next.replace('filter=all','filter=other')+'&filter=all','2026-10-27'),false);
+ for(const bad of [next.replace('9146588221','9146588222'),next.replace('scenesMode=3','scenesMode=1'),next.replace('filter=all','filter=other'),next.replace('/unit?','/overView?'),next.replace('yingxiao.pinduoduo.com','evil.test'),next.replace('beginDate=2026-10-27','beginDate=2026-10-28'),next+'&beginDate=2026-10-27',next+'#changed',next.replace('&endDate=2026-10-27','')])assert.equal(allowedDateURLChange(before,bad,'2026-10-27'),false,bad);
 });

@@ -74,6 +74,64 @@ export function batchReportDocument(command={action:'read'}){
  const dates=primary?[...new Set(primary.values)].sort():[];
  const primaryVerified=Boolean(primary)&&dates.length<=2&&dates.every(day)&&mainControls.every(e=>e.values.length>0)&&dates.length>0;
  const url=new URL(location.href),adId=url.searchParams.get('adId'),ids=[...new Set([...(document.body.innerText||'').matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];
+ if(command.action==='date-step'){
+  // Date actions inspect only date controls/calendars. Data rows are read and
+  // validated separately once the requested day has settled.
+  const diagnostics={calendar:[],dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values}))};
+  const context={route,origin:location.origin,dates,primaryVerified,adId,productId:route===unit&&ids.length===1?ids[0]:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
+  let parseMs=null,actionDurationMs=0;
+  const act=fn=>{parseMs=performance.now()-started;const at=performance.now();fn();actionDurationMs+=performance.now()-at;};
+  const response=extra=>({protocol,action:command.action,context,diagnostics,performance:{durationMs:Math.round(parseMs??performance.now()-started),actionDurationMs:Math.round(actionDurationMs)},...extra});
+  const start=command.start,end=command.end||start;
+  if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
+  const key=route+'|'+(adId||'account')+'|'+start+'|'+end;
+  let state=globalThis.__xinyongtuBatchDate;
+  if(command.reset||!state||state.key!==key)state=globalThis.__xinyongtuBatchDate={key,inputs:[...primary.inputs],phase:'start',opened:false,openAttempts:0,steps:0};
+  state.steps++;if(state.steps>120)throw Error('日期选择超过120步，未确认生效');
+  const wanted=state.phase==='start'?start:end;
+  const calendarNode=e=>!e.matches('input')&&(e.matches('td,button,a,[role="gridcell"],[data-date],[datetime]')||Boolean(e.closest('td,[role="gridcell"]')));
+  const allPanels=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>[...e.querySelectorAll('[title],[data-date],[datetime]')].some(n=>calendarNode(n)&&[n.getAttribute('title'),n.getAttribute('data-date'),n.getAttribute('datetime')].some(v=>v&&day(v.replace(/\//g,'-')))));
+  const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));
+  const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
+  diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
+  const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
+  if(exact&&!panels.length){state.phase='done';return result({kind:'date-selected'});}
+  // Native date inputs are the only inputs assigned directly. Text/readonly
+  // framework pickers are operated through their visible calendar controls.
+  if(primary.inputs.every(e=>e.type==='date'&&!e.readOnly)){
+   act(()=>{for(let i=0;i<primary.inputs.length;i++){const e=primary.inputs[i],value=i===0?start:end;if(e.value===value)continue;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}});
+   return result({kind:'native-date-requested'});
+  }
+  const confirms=panels.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).filter(e=>shown(e)&&/^(确定|应用|查询|OK|Apply)$/.test(text(e))&&!e.disabled&&e.getAttribute('aria-disabled')!=='true');
+  if((state.phase==='confirm'||exact&&state.opened)&&confirms.length){
+   if(confirms.length!==1)throw Error('日历确认按钮不唯一，未猜测');
+   act(()=>confirms[0].click());state.phase='verify';return result({kind:'date-confirm-requested'});
+  }
+  if(state.phase==='verify'){
+   if(state.steps<120)return result({kind:'date-awaiting-readback'});
+   throw Error('日期操作后未回读到目标单日，未保存数据');
+  }
+  const range=primary.inputs.length===2||primary.values.length>1||Boolean(primary.inputs[0].closest('[class*="picker-range"],[class*="PickerRange"]'));
+  if(state.opened&&panels.length){
+   const rawNodes=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime]')]).filter(e=>calendarNode(e)&&shown(e)&&!e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled')&&!/disabled/i.test(String(e.className))).filter(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].some(v=>v&&v.replace(/\//g,'-')===wanted));
+   let nodes=[...new Set(rawNodes)].filter(e=>!rawNodes.some(child=>child!==e&&e.contains(child)));
+   if(nodes.length>1){const inMonth=nodes.filter(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return /cell-in-view|current-month/.test(String(cell.className))||cell.getAttribute('data-current-month')==='true';});if(inMonth.length===1)nodes=inMonth;}
+   diagnostics.calendar=panels.map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dates:[...new Set([...p.querySelectorAll('[title],[data-date],[datetime]')].flatMap(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].filter(v=>v&&day(v.replace(/\//g,'-')))))].slice(0,65)}));
+   if(nodes.length===1){act(()=>nodes[0].click());state.phase=state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
+   if(nodes.length>1)throw Error('目标日期单元格不唯一，未猜测');
+   const months=[...new Set(panels.flatMap(p=>[...norm(text(p)).matchAll(/(20\d{2})[年/-](\d{1,2})(?:月|$)/g)].map(m=>m[1]+'-'+m[2].padStart(2,'0'))))].sort();
+   diagnostics.dateSelection.displayedMonths=months;
+   const direction=months.length?(wanted.slice(0,7)<months[0]?'prev':wanted.slice(0,7)>months.at(-1)?'next':null):null;
+   if(direction){const nav=panels.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).filter(e=>shown(e)&&!e.disabled).filter(e=>{const name=[e.getAttribute('aria-label'),e.getAttribute('title'),text(e)].filter(Boolean).join(' ');return direction==='prev'?/上一月|上个月|前一月|previous month|prev.*month/i.test(name):/下一月|下个月|后一月|next.*month/i.test(name);});if(nav.length){act(()=>(direction==='prev'?nav[0]:nav.at(-1)).click());return result({kind:'calendar-month-requested',direction});}}
+   return result({kind:'unsupported-calendar',error:'已打开日期控件，但未唯一识别目标日期或月份入口'});
+  }
+  // React range pickers commonly open on mousedown/focus, not input.click().
+  if(state.openAttempts>=3)throw Error('主日期控件未打开日历，已停止重复点击；请导出日期诊断');
+  const index=state.phase==='end'&&primary.inputs.length===2?1:0,input=primary.inputs[index];
+  let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="picker"],[role="combobox"]')||input;
+  act(()=>{target.scrollIntoView({block:'center'});target.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));input.focus();target.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));target.click();});
+  state.opened=true;state.openAttempts++;return result({kind:'calendar-requested',inputIndex:index});
+ }
  const modeNames=['全部','稳定成本推广','全店托管'];
  // Build one small label index per invocation, never rescan the document per row/column.
  const columns=['点击率','点击转化率','成交花费(元)','交易额(元)','实际投产比','总花费(元)','净交易额(元)','净实际投产比','净成交笔数','每笔净成交花费(元)','成交笔数','曝光量','点击量'];
@@ -205,57 +263,6 @@ export function batchReportDocument(command={action:'read'}){
   if(!Number.isInteger(command.page)||command.page<1||command.page>100)throw Error('分页参数无效');
   const containers=[...document.querySelectorAll('nav,[role="navigation"],[class*="pagination"],[class*="Pagination"]')].filter(shown);const controls=[];for(const c of containers)for(const e of c.querySelectorAll('button,a,li,[role="button"]'))if(shown(e)&&norm(text(e))===String(command.page)&&!e.querySelector('button,a,[role="button"]')&&!e.disabled&&!/disabled/i.test(String(e.className)))if(!controls.includes(e))controls.push(e);
   if(controls.length!==1)throw Error('未找到唯一明确的报表页码 '+command.page);controls[0].click();return response({kind:'page-requested'});
- }
- if(command.action==='date-step'){
-  const start=command.start,end=command.end||start;
-  if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
-  const key=route+'|'+(adId||'account')+'|'+start+'|'+end;
-  let state=globalThis.__xinyongtuBatchDate;
-  if(command.reset||!state||state.key!==key)state=globalThis.__xinyongtuBatchDate={key,inputs:[...primary.inputs],phase:'start',opened:false,openAttempts:0,steps:0};
-  state.steps++;if(state.steps>120)throw Error('日期选择超过120步，未确认生效');
-  const wanted=state.phase==='start'?start:end;
-  const calendarNode=e=>!e.matches('input')&&(e.matches('td,button,a,[role="gridcell"],[data-date],[datetime]')||Boolean(e.closest('td,[role="gridcell"]')));
-  const allPanels=[...document.querySelectorAll('[role="dialog"],[role="grid"][aria-label*="日期"],[role="grid"][aria-label*="calendar"],[class*="picker-dropdown"],[class*="picker-panel"],[class*="pickerPanel"],[class*="Picker"],[class*="calendar"],[class*="Calendar"]')].filter(shown).filter(e=>[...e.querySelectorAll('[title],[data-date],[datetime]')].some(n=>calendarNode(n)&&[n.getAttribute('title'),n.getAttribute('data-date'),n.getAttribute('datetime')].some(v=>v&&day(v.replace(/\//g,'-')))));
-  const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));
-  const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
-  diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
-  const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
-  if(exact&&!panels.length){state.phase='done';return result({kind:'date-selected'});}
-  // Native date inputs are the only inputs assigned directly. Text/readonly
-  // framework pickers are operated through their visible calendar controls.
-  if(primary.inputs.every(e=>e.type==='date'&&!e.readOnly)){
-   for(let i=0;i<primary.inputs.length;i++){const e=primary.inputs[i],value=i===0?start:end;if(e.value===value)continue;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}
-   return result({kind:'native-date-requested'});
-  }
-  const confirms=panels.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).filter(e=>shown(e)&&/^(确定|应用|查询|OK|Apply)$/.test(text(e))&&!e.disabled&&e.getAttribute('aria-disabled')!=='true');
-  if((state.phase==='confirm'||exact&&state.opened)&&confirms.length){
-   if(confirms.length!==1)throw Error('日历确认按钮不唯一，未猜测');
-   confirms[0].click();state.phase='verify';return result({kind:'date-confirm-requested'});
-  }
-  if(state.phase==='verify'){
-   if(state.steps<120)return result({kind:'date-awaiting-readback'});
-   throw Error('日期操作后未回读到目标单日，未保存数据');
-  }
-  const range=primary.inputs.length===2||primary.values.length>1||Boolean(primary.inputs[0].closest('[class*="picker-range"],[class*="PickerRange"]'));
-  if(state.opened&&panels.length){
-   const rawNodes=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime]')]).filter(e=>calendarNode(e)&&shown(e)&&!e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled')&&!/disabled/i.test(String(e.className))).filter(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].some(v=>v&&v.replace(/\//g,'-')===wanted));
-   let nodes=[...new Set(rawNodes)].filter(e=>!rawNodes.some(child=>child!==e&&e.contains(child)));
-   if(nodes.length>1){const inMonth=nodes.filter(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return /cell-in-view|current-month/.test(String(cell.className))||cell.getAttribute('data-current-month')==='true';});if(inMonth.length===1)nodes=inMonth;}
-   diagnostics.calendar=panels.map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dates:[...new Set([...p.querySelectorAll('[title],[data-date],[datetime]')].flatMap(e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime')].filter(v=>v&&day(v.replace(/\//g,'-')))))].slice(0,65)}));
-   if(nodes.length===1){nodes[0].click();state.phase=state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
-   if(nodes.length>1)throw Error('目标日期单元格不唯一，未猜测');
-   const months=[...new Set(panels.flatMap(p=>[...norm(text(p)).matchAll(/(20\d{2})[年/-](\d{1,2})(?:月|$)/g)].map(m=>m[1]+'-'+m[2].padStart(2,'0'))))].sort();
-   diagnostics.dateSelection.displayedMonths=months;
-   const direction=months.length?(wanted.slice(0,7)<months[0]?'prev':wanted.slice(0,7)>months.at(-1)?'next':null):null;
-   if(direction){const nav=panels.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).filter(e=>shown(e)&&!e.disabled).filter(e=>{const name=[e.getAttribute('aria-label'),e.getAttribute('title'),text(e)].filter(Boolean).join(' ');return direction==='prev'?/上一月|上个月|前一月|previous month|prev.*month/i.test(name):/下一月|下个月|后一月|next.*month/i.test(name);});if(nav.length){(direction==='prev'?nav[0]:nav.at(-1)).click();return result({kind:'calendar-month-requested',direction});}}
-   return result({kind:'unsupported-calendar',error:'已打开日期控件，但未唯一识别目标日期或月份入口'});
-  }
-  // React range pickers commonly open on mousedown/focus, not input.click().
-  if(state.openAttempts>=3)throw Error('主日期控件未打开日历，已停止重复点击；请导出日期诊断');
-  const index=state.phase==='end'&&primary.inputs.length===2?1:0,input=primary.inputs[index];
-  let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="picker"],[role="combobox"]')||input;
-  target.scrollIntoView({block:'center'});target.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));input.focus();target.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));target.click();
-  state.opened=true;state.openAttempts++;return result({kind:'calendar-requested',inputIndex:index});
  }
  throw Error('不支持的报表采集动作');
 }
