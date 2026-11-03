@@ -18,7 +18,7 @@ const reportURLFacts=raw=>{try{const u=new URL(raw);return {origin:u.origin,path
 export function assertDay(data,date){const c=data.context;if(!c.primaryVerified||!c.dates.length||c.dates.some(d=>d!==date))throw Error('主统计日期未确认：'+date);if(c.route===OVERVIEW&&c.selectedMode!=='全部')throw Error('账户报表未处于“全部”模式');if(c.route===UNIT&&(c.beginDate!==date||c.endDate!==date))throw Error('详情地址与统计日期不一致');}
 export function mergeRows(map,rows,key){for(const row of rows){const id=key(row),previous=map.get(id);if(!previous){map.set(id,structuredClone(row));continue;}for(const metric of row.metrics){const old=previous.metrics.find(m=>m.label===metric.label);if(!old){previous.metrics.push(metric);continue;}if(old.state==='missing'){Object.assign(old,metric);continue;}if(metric.state!=='missing'&&JSON.stringify(old)!==JSON.stringify(metric))throw Error('扫描期间字段冲突：'+id+' '+metric.label);}}}
 export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome}){
- let controlled=tabId,expectedURL=null,dateTransaction=null;const created=new Set();let lastDiagnostic=null,epoch=0,dateReceiptMisses=0;const settledSnapshots=new WeakMap(),startedAt=performance.now(),startedAtISO=new Date().toISOString(),counts={scriptCalls:0,fullReads:0,stableChecks:0,scrollMoves:0,readReceiptRetries:0,dateReceiptRecoveries:0,requestedWaitMs:0};
+ let controlled=tabId,expectedURL=null,dateTransaction=null;const created=new Set();let lastDiagnostic=null,epoch=0,dateReceiptMisses=0;const settledSnapshots=new WeakMap(),startedAt=performance.now(),startedAtISO=new Date().toISOString(),counts={scriptCalls:0,fullReads:0,stableChecks:0,scrollMoves:0,readReceiptRetries:0,dateReceiptRecoveries:0,calendarRecoveries:0,requestedWaitMs:0};
  const fingerprint=d=>JSON.stringify([d.context,d.summary,d.products,d.hourly]);
  const check=()=>signal?.throwIfAborted();
  const wait=ms=>{counts.requestedWaitMs+=ms;return new Promise((resolve,reject)=>{check();const done=()=>{signal?.removeEventListener('abort',abort);resolve();},t=setTimeout(done,ms),abort=()=>{clearTimeout(t);reject(signal.reason||new DOMException('已停止','AbortError'));};signal?.addEventListener('abort',abort,{once:true});});};
@@ -36,6 +36,7 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
    await current();let results,transportError=null;counts.scriptCalls++;if(readonly)counts.fullReads++;
    try{results=await api.scripting.executeScript({target:{tabId:controlled},func:batchReportDocument,args:[command]});}
    catch(e){if(!/frame.*(?:removed|detached)|context.*(?:invalid|destroyed)|document.*unload|no frame with id/i.test(e.message||''))throw e;transportError=e.message;}
+   const injectionError=results?.[0]?.error;if(injectionError){const message=typeof injectionError==='string'?injectionError:injectionError.message||'页面脚本执行失败';const event={protocol:'batch-dom-1',action:command.action,error:message,errorCode:'injection-error',recoverable:false};lastDiagnostic=event;onDiagnostic(event);throw Object.assign(Error(message),{code:event.errorCode});}
    const data=results?.[0]?.result;
    if(data==null){
     const event={protocol:'batch-dom-1',action:'receipt-recovery',receipt:{command:command.action,attempt:attempt+1,resultCount:results?.length||0,transportError}};lastDiagnostic=event;onDiagnostic(event);
@@ -45,8 +46,8 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
    }
    if(data.protocol!=='batch-dom-1'||data.action!==command.action){const event={protocol:'batch-dom-1',action:'receipt-invalid',receipt:{command:command.action,receivedProtocol:data.protocol||null,receivedAction:data.action||null}};lastDiagnostic=event;onDiagnostic(event);throw Error('采集回执协议或动作不符，已停止；不据此判定插件需要更新');}
    if(command.action==='date-step')dateReceiptMisses=0;
-   lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,summaryEvidence:data.diagnostics?.summaryEvidence,dateSelection:data.dateSelection||data.diagnostics?.dateSelection,calendar:data.diagnostics?.calendar,kind:data.kind,totalRows:data.diagnostics?.totalRows,scroll:data.scroll,performance:data.performance,error:data.error};onDiagnostic(data);
-   if(data.performance?.durationMs>250)throw Error('页面解析耗时超过250毫秒，已暂停以避免持续卡顿；请导出诊断');if(data.error)throw Error(data.error);if(data.kind==='scrolled')counts.scrollMoves++;
+   lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,summaryEvidence:data.diagnostics?.summaryEvidence,dateSelection:data.dateSelection||data.diagnostics?.dateSelection,calendar:data.diagnostics?.calendar,kind:data.kind,totalRows:data.diagnostics?.totalRows,scroll:data.scroll,performance:data.performance,error:data.error,errorCode:data.errorCode,recoverable:data.recoverable};onDiagnostic(data);
+   if(data.performance?.durationMs>250)throw Error('页面解析耗时超过250毫秒，已暂停以避免持续卡顿；请导出诊断');if(data.error)throw Object.assign(Error(data.error),{code:data.errorCode,recoverable:data.recoverable});if(data.kind==='scrolled')counts.scrollMoves++;
    return data;
   }
  }
@@ -66,7 +67,8 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
  async function navigate(raw){const u=checkedReportURL(raw);const before=await current();expectedURL=u.href;if(before.url!==u.href){epoch++;await api.tabs.update(controlled,{url:u.href});}return stable();}
  async function selectDay(date){
   dateReceiptMisses=0;const before=await current(),initial=await read();if(!initial.context?.primaryVerified)throw Error('日期选择前未确认主日期，未开始操作');dateTransaction={baseline:before.url,targetDate:date,initialDates:[...initial.context.dates]};
-  try{for(let n=0;n<120;n++){const result=await read({action:'date-step',start:date,end:date,reset:n===0});await wait(350);if(result.kind==='date-selected'){
+  let reset=true,recoveries=0;
+  try{for(let n=0;n<120;n++){let result;try{result=await read({action:'date-step',start:date,end:date,reset});reset=false;}catch(error){if(error.code!=='calendar-not-open'||!error.recoverable||recoveries>=2)throw error;recoveries++;counts.calendarRecoveries++;const event={...lastDiagnostic,action:'calendar-recovery',attempt:recoveries};lastDiagnostic=event;onDiagnostic(event);await wait(1000*recoveries);reset=true;continue;}await wait(350);if(result.kind==='date-selected'){
     await stable(date);const final=checkedReportURL((await current()).url),hasDate=final.searchParams.has('beginDate')||final.searchParams.has('endDate');
     if(hasDate&&(final.searchParams.getAll('beginDate').length!==1||final.searchParams.getAll('endDate').length!==1||final.searchParams.get('beginDate')!==date||final.searchParams.get('endDate')!==date)){urlDiagnostic(before.url,final.href,false,'date-readback-and-url-disagree');throw Error('页面主日期与地址日期未同时确认为目标单日，未保存数据');}
     return;

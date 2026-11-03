@@ -161,3 +161,9 @@ browser_dates.py加入“第二次选日后先自动改写URL，再确认/回读
 新增benchmark_collection.py以e5afcd3同混合模式/相同数据逐字段对照（仅排除capturedAt/bytes）；browser_fastpath.py验证虚拟24小时全部读齐、4小时拒绝、只读恢复、滚动不重放、坏协议拒绝。browser_dates.py在7日完整流程注入一次选日后丢回执，验证恢复且仍28次日期点击。具体结果见TESTING-v0.12.8.md。
 
 扩展0.12.8，协议仍three-layer-table-3以保留同一任务续采。未减少数据种类/日期/字段；无真实店铺操作、Release、部署、main/release-channel变更。保存用户成功JSON备份后先测单日实际速度与数据完整性。
+
+## 2026-11-03 v0.12.9：日期控件有限自动恢复与真实错误
+
+基于recovery/v0.12.1的42af4e8（0.12.8），工作区开始时干净。报告14显示主日历三次未打开后，页面异常被空回执覆盖；没有证据表明四个链接数据本身不可采。新增1.2秒开窗等待，第三次优先外层picker-range，尚未选日期的开窗失败最多自动恢复两轮（1秒/2秒等待）。永久失败仍暂停，不能保证真实页面无需人工干预。异常在页面内结构化返回；driver保留页面和InjectionResult.error真实消息及错误码。诊断和calendarRecoveries可追踪恢复。身份/主日期及URL日期/24小时/金额核对、托管null口径不变。
+
+协议仍three-layer-table-3，旧任务同一日期可继续；先备份导出数据。安装：下载0.12.9整包并解压，install.cmd更新固定目录，Edge重新加载扩展及刷新后台，核对0.12.9。不要点桌面更新，未更改release-channel。测试结果见TESTING-v0.12.9.md。真实Windows/Edge/后台待用户实机复测；本轮无商家操作、Release或部署。

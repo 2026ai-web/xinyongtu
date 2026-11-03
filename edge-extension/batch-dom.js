@@ -1,6 +1,8 @@
 // Serialized into the merchant page. Commands only operate on report views,
 // report dates, report pagination and the exact 查看详情 entrance.
 export function batchReportDocument(command={action:'read'}){
+ let failureDiagnostic=null;
+ try{
  const route=location.pathname,overview='/goods/report/promotion/overView',unit='/goods/report/promotion/unit';
  if(location.protocol!=='https:'||location.hostname!=='yingxiao.pinduoduo.com'||![overview,unit].includes(route))throw Error('一键任务仅支持已确认的商品推广报表地址');
  const started=performance.now();
@@ -94,6 +96,7 @@ export function batchReportDocument(command={action:'read'}){
   const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));
   const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
   diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
+  failureDiagnostic=diagnostics;
   const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
   if(exact&&!panels.length){state.phase='done';return result({kind:'date-selected'});}
   // Native date inputs are the only inputs assigned directly. Text/readonly
@@ -126,11 +129,12 @@ export function batchReportDocument(command={action:'read'}){
    return result({kind:'unsupported-calendar',error:'已打开日期控件，但未唯一识别目标日期或月份入口'});
   }
   // React range pickers commonly open on mousedown/focus, not input.click().
-  if(state.openAttempts>=3)throw Error('主日期控件未打开日历，已停止重复点击；请导出日期诊断');
+  if(state.opened&&Date.now()-(state.openedAt||0)<1200)return result({kind:'calendar-opening'});
+  if(state.openAttempts>=3)return result({kind:'calendar-not-open',errorCode:'calendar-not-open',recoverable:state.phase==='start',error:'主日期控件未打开日历；已等待并尝试主输入框及外层范围控件，请保留日期诊断'});
   const index=state.phase==='end'&&primary.inputs.length===2?1:0,input=primary.inputs[index];
-  let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="picker"],[role="combobox"]')||input;
+  let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="PickerRange"]')||input.closest('[role="combobox"]')||input.closest('[class*="picker"]')||input;
   act(()=>{target.scrollIntoView({block:'center'});target.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));input.focus();target.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));target.click();});
-  state.opened=true;state.openAttempts++;return result({kind:'calendar-requested',inputIndex:index});
+  state.opened=true;state.openedAt=Date.now();state.openAttempts++;return result({kind:'calendar-requested',inputIndex:index});
  }
  const modeNames=['全部','稳定成本推广','全店托管'];
  // Build one small label index per invocation, never rescan the document per row/column.
@@ -265,4 +269,5 @@ export function batchReportDocument(command={action:'read'}){
   if(controls.length!==1)throw Error('未找到唯一明确的报表页码 '+command.page);controls[0].click();return response({kind:'page-requested'});
  }
  throw Error('不支持的报表采集动作');
+ }catch(error){return {protocol:'batch-dom-1',action:command.action,error:String(error?.message||error),errorCode:'page-command-failed',recoverable:false,diagnostics:failureDiagnostic};}
 }
