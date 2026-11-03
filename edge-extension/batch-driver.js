@@ -18,7 +18,7 @@ const reportURLFacts=raw=>{try{const u=new URL(raw);return {origin:u.origin,path
 export function assertDay(data,date){const c=data.context;if(!c.primaryVerified||!c.dates.length||c.dates.some(d=>d!==date))throw Error('主统计日期未确认：'+date);if(c.route===OVERVIEW&&c.selectedMode!=='全部')throw Error('账户报表未处于“全部”模式');if(c.route===UNIT&&(c.beginDate!==date||c.endDate!==date))throw Error('详情地址与统计日期不一致');}
 export function mergeRows(map,rows,key){for(const row of rows){const id=key(row),previous=map.get(id);if(!previous){map.set(id,structuredClone(row));continue;}for(const metric of row.metrics){const old=previous.metrics.find(m=>m.label===metric.label);if(!old){previous.metrics.push(metric);continue;}if(old.state==='missing'){Object.assign(old,metric);continue;}if(metric.state!=='missing'&&JSON.stringify(old)!==JSON.stringify(metric))throw Error('扫描期间字段冲突：'+id+' '+metric.label);}}}
 export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome}){
- let controlled=tabId,expectedURL=null,dateTransaction=null;const created=new Set();let lastDiagnostic=null,epoch=0,dateReceiptMisses=0;const settledSnapshots=new WeakMap(),startedAt=performance.now(),startedAtISO=new Date().toISOString(),counts={scriptCalls:0,fullReads:0,stableChecks:0,scrollMoves:0,readReceiptRetries:0,dateReceiptRecoveries:0,calendarRecoveries:0,requestedWaitMs:0};
+ let controlled=tabId,expectedURL=null,dateTransaction=null;const created=new Set();let lastDiagnostic=null,epoch=0,dateReceiptMisses=0;const settledSnapshots=new WeakMap(),startedAt=performance.now(),startedAtISO=new Date().toISOString(),counts={scriptCalls:0,fullReads:0,stableChecks:0,scrollMoves:0,readReceiptRetries:0,dateReceiptRecoveries:0,calendarRecoveries:0,unitDateNavigations:0,requestedWaitMs:0};
  const fingerprint=d=>JSON.stringify([d.context,d.summary,d.products,d.hourly]);
  const check=()=>signal?.throwIfAborted();
  const wait=ms=>{counts.requestedWaitMs+=ms;return new Promise((resolve,reject)=>{check();const done=()=>{signal?.removeEventListener('abort',abort);resolve();},t=setTimeout(done,ms),abort=()=>{clearTimeout(t);reject(signal.reason||new DOMException('已停止','AbortError'));};signal?.addEventListener('abort',abort,{once:true});});};
@@ -107,7 +107,10 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
  }
  async function openUnit(row,date,overviewURL){
   if(row.unitURL){const u=checkedReportURL(row.unitURL,UNIT);u.searchParams.set('beginDate',date);u.searchParams.set('endDate',date);const ready=await navigate(u.href);return verifyUnit(row,date,ready);}
-  await overview(overviewURL,date);
+  // The account-day was already saved and verified. Here the overview is
+  // used only to locate an exact product/mode entrance, never to read metrics
+  // for the requested day. Its date may reset on each visit.
+  await navigate(overviewURL);await read({action:'all-mode'});await stable();
   // Locate the observed row again, including pagination and virtual scrolling.
   for(let page=1;page<=20;page++){
    await read({action:'scroll-init'});for(let step=0;step<100;step++){
@@ -119,9 +122,29 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
     }
     if((await read({action:'scroll-next'})).kind==='end')break;await wait(150);
    }
-   await read({action:'page',page:page+1});await stable(date);
+   await read({action:'page',page:page+1});await stable();
   }throw Error('未定位到商品查看详情入口');
  }
- async function verifyUnit(row,date,ready=null){let d;const token=ready&&settledSnapshots.get(ready);if(token&&token.epoch===epoch&&token.url===expectedURL&&performance.now()-token.at<250){const fresh=await read();if(!fresh.context.loading&&fingerprint(ready)===fingerprint(fresh))d=fresh;}if(!d)d=await stable();if(d.context.productId!==row.productId||!d.context.adId||row.adId&&row.adId!==d.context.adId)throw Error('商品详情身份与来源行不一致');if(!d.context.dates.length||d.context.dates.some(value=>value!==date)){await selectDay(date);d=await stable(date);}else assertDay(d,date);const source=new URL((await current()).url),safe=new URL(UNIT,source.origin);for(const key of ['adId','beginDate','endDate','scenesMode'])if(source.searchParams.has(key))safe.searchParams.set(key,source.searchParams.get(key));return {adId:d.context.adId,url:safe.href};}
+ async function verifyUnit(row,date,ready=null){
+  let d;const token=ready&&settledSnapshots.get(ready);
+  if(token&&token.epoch===epoch&&token.url===expectedURL&&performance.now()-token.at<250){const fresh=await read();if(!fresh.context.loading&&fingerprint(ready)===fingerprint(fresh))d=fresh;}
+  if(!d)d=await stable();
+  const identity=()=>{if(d.context.route!==UNIT||d.context.productId!==row.productId||!d.context.adId||row.adId&&row.adId!==d.context.adId)throw Error('商品详情身份与来源行不一致');};
+  identity();
+  // Only use a detail address actually observed after opening this exact row.
+  // Set its dates once, then verify the rendered page; URL alone is no proof.
+  let source=checkedReportURL((await current()).url,UNIT);
+  if(source.searchParams.getAll('beginDate').length!==1||source.searchParams.getAll('endDate').length!==1||source.searchParams.get('beginDate')!==date||source.searchParams.get('endDate')!==date){
+   const observedAdId=d.context.adId,target=new URL(source.href);target.searchParams.set('beginDate',date);target.searchParams.set('endDate',date);
+   counts.unitDateNavigations++;const event={protocol:'batch-dom-1',action:'unit-date-navigation',from:reportURLFacts(source.href),to:reportURLFacts(target.href)};lastDiagnostic=event;onDiagnostic(event);
+   d=await navigate(target.href);identity();if(d.context.adId!==observedAdId)throw Error('调整报表日期后推广身份发生变化');
+  }
+  if(!d.context.dates.length||d.context.dates.some(value=>value!==date)){await selectDay(date);d=await stable(date);identity();}
+  assertDay(d,date);
+  source=checkedReportURL((await current()).url,UNIT);const safe=new URL(UNIT,source.origin);
+  for(const key of ['adId','beginDate','endDate','scenesMode'])if(source.searchParams.has(key))safe.searchParams.set(key,source.searchParams.get(key));
+  return {adId:d.context.adId,url:safe.href};
+ }
+
  return {read,overview,scan,openUnit,navigate,verifyUnit,wait,measurements:()=>({scope:'current-driver-attempt',startedAt:startedAtISO,...counts,elapsedMs:Math.round(performance.now()-startedAt)}),diagnostic:()=>structuredClone(lastDiagnostic),async close(){for(const id of created){try{checkedReportURL((await api.tabs.get(id)).url);await api.tabs.remove(id);}catch{}}}};
 }
