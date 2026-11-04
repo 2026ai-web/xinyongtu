@@ -5,7 +5,7 @@ $files=@('manifest.json','background.js','panel.html','panel.css','panel.js','re
 if(!$Destination){$Destination=Join-Path $env:LOCALAPPDATA 'Xinyongtu'}
 $root=[IO.Path]::GetFullPath($Destination)
 New-Item -ItemType Directory -Force -Path $root | Out-Null
-$lock=$null;$temp=$null
+$lock=$null;$temp=$null;$filesInstalled=$false
 try {
  $lock=[IO.File]::Open((Join-Path $root 'update.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
  $target=Join-Path $root 'extension';$backup=Join-Path $root 'previous'
@@ -37,25 +37,38 @@ try {
  $hadPrevious=Test-Path $target
  if($hadPrevious){Move-Item -LiteralPath $target -Destination $backup}
  try{Move-Item -LiteralPath $stage -Destination $target}catch{if($hadPrevious){Move-Item -LiteralPath $backup -Destination $target};throw}
+ $filesInstalled=$true
  # Store the updater outside the extension. Its path remains stable across upgrades.
  if([IO.Path]::GetFullPath($PSCommandPath) -ne (Join-Path $root 'install.ps1')){Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $root 'install.ps1') -Force}
- if(!$NoUI){
-  $shell=New-Object -ComObject WScript.Shell
-  $shortcut=$shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) '新龙图更新.lnk'))
-  $shortcut.TargetPath=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $root 'install.ps1')+'" -Update'
-  $shortcut.WorkingDirectory=$root;$shortcut.Save()
-  Set-Clipboard -Value $target
-  Add-Type -AssemblyName System.Windows.Forms
-  if($hadPrevious){$message="更新完成。请在 Edge 扩展页找到新龙图，点一次重新加载，再刷新商家报表页。`n不要删除插件。以后更新只需双击桌面的「新龙图更新」。"}
-  else{$message="文件已安装，路径已复制。`n首次使用：打开 edge://extensions，开启开发者模式，点「加载解压缩的扩展」，在文件夹地址栏粘贴路径并选择此文件夹。`n以后更新只需双击桌面的「新龙图更新」，无需下载解压。`n旧插件请先停用保留，旧记录不会自动迁移。"}
-  [Windows.Forms.MessageBox]::Show($message,'新龙图 '+$manifest.version) | Out-Null
-  Start-Process explorer.exe -ArgumentList $target
- }
  Write-Output ('Installed '+$manifest.version+' at '+$target)
+ if(!$NoUI){
+  try {
+   $shell=New-Object -ComObject WScript.Shell
+   $shortcut=$shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) '新龙图更新.lnk'))
+   $shortcut.TargetPath=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+   $shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $root 'install.ps1')+'" -Update'
+   $shortcut.WorkingDirectory=$root;$shortcut.Save()
+  } catch { Write-Warning ('扩展文件已安装；桌面快捷方式未创建：'+$_.Exception.Message) }
+  $clipboardCopied=$false
+  try { Set-Clipboard -Value $target; $clipboardCopied=$true }
+  catch { Write-Warning '扩展文件已安装；剪贴板暂不可用，请手动使用下方安装路径。' }
+  if($hadPrevious){$message="更新完成。请在 Edge 扩展页找到新龙图，点一次重新加载，再刷新商家报表页。`n不要删除插件。"}
+  else{$message="文件已安装。首次使用：打开 edge://extensions，开启开发者模式，点「加载解压缩的扩展」，选择下方安装文件夹。`n旧插件请先停用保留，旧记录不会自动迁移。"}
+  $message+="`n安装路径："+$target
+  if($clipboardCopied){$message+="`n路径已复制到剪贴板。"}else{$message+="`n路径未复制，请手动选择或输入上方路径。"}
+  $message+="`n本测试包请使用下载整包更新，暂勿点击桌面更新入口。"
+  Write-Output $message
+  try { Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.MessageBox]::Show($message,'新龙图 '+$manifest.version) | Out-Null }
+  catch { Write-Warning '无法显示提示窗口，请按上方文字完成 Edge 重新加载或首次安装。' }
+  try { Start-Process explorer.exe -ArgumentList ('"'+$target+'"') }
+  catch { Write-Warning ('无法自动打开文件夹，请手动打开：'+$target) }
+ }
 } catch {
- if(!$NoUI){Add-Type -AssemblyName System.Windows.Forms;[Windows.Forms.MessageBox]::Show(('安装或更新未完成：'+$_.Exception.Message+"`n请保留当前插件，将此提示发给开发者。"),'新龙图') | Out-Null}
- throw
+ $failure=$_
+ if($filesInstalled){$errorMessage='扩展文件已安装，但后续配置未完成：'+$failure.Exception.Message+"`n安装路径："+$target+"`n可先在 Edge 重新加载并核对版本。"}
+ else{$errorMessage='安装或更新未完成：'+$failure.Exception.Message+"`n请保留当前插件，将此提示发给开发者。"}
+ if(!$NoUI){Write-Warning $errorMessage;try{Add-Type -AssemblyName System.Windows.Forms;[Windows.Forms.MessageBox]::Show($errorMessage,'新龙图') | Out-Null}catch{Write-Warning '无法显示提示窗口，请保留上方原始错误。'}}
+ throw $failure
 } finally {
  if($temp -and (Test-Path $temp)){Remove-Item -LiteralPath $temp -Recurse -Force}
  if($lock){$lock.Dispose()}

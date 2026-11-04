@@ -1,1 +1,1 @@
-{"name":"xinyongtu","private":true,"type":"module","version":"0.12.25","scripts":{"test":"node --test tests/*.test.mjs"},"engines":{"node":">=22"}}
+{"name":"xinyongtu","private":true,"type":"module","version":"0.12.26","scripts":{"test":"node --test tests/*.test.mjs"},"engines":{"node":">=22"}}
