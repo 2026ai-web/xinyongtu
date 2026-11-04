@@ -91,6 +91,9 @@ export function batchReportDocument(command={action:'read'}){
   if(command.reset||!state||state.key!==key)state=globalThis.__xinyongtuBatchDate={key,inputs:[...primary.inputs],phase:'start',opened:false,openAttempts:0,steps:0};
   state.steps++;if(state.steps>120)throw Error('日期选择超过120步，未确认生效');
   const wanted=state.phase==='start'?start:end;
+  const openInput=(index,kind='calendar-requested')=>{const input=primary.inputs[index];if(!input||input.disabled)throw Error('主日期输入框不可用');let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="PickerRange"]')||input.closest('[role="combobox"]')||input.closest('[class*="picker"]')||input;
+   act(()=>{target.scrollIntoView({block:'center'});target.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));input.focus();target.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));target.click();});state.opened=true;state.openedAt=Date.now();state.openAttempts++;return result({kind,inputIndex:index});};
+
   const cellDay=value=>{const m=String(value||'').trim().match(/^(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})(?:日)?(?:\s+(?:星期|周|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday).*)?$/i);if(!m)return null;const valueDay=m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');return day(valueDay)?valueDay:null;};
   const cellDates=e=>[e.getAttribute('title'),e.getAttribute('data-date'),e.getAttribute('datetime'),e.getAttribute('aria-label')].map(cellDay).filter(Boolean);
 
@@ -105,7 +108,7 @@ export function batchReportDocument(command={action:'read'}){
   diagnostics.calendarCandidates=popupCandidates.slice(0,4).map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dateSamples:[...p.querySelectorAll('td,button,[role=gridcell]')].slice(0,8).map(e=>({title:e.getAttribute('title'),dataDate:e.getAttribute('data-date'),label:e.getAttribute('aria-label')}))}));
   const panels=allPanels.filter(e=>!allPanels.some(p=>p!==e&&p.contains(e)));
   const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
-  diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
+  diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,activeControl:primary.inputs.indexOf(document.activeElement),controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
   failureDiagnostic=diagnostics;
   const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
   if(exact&&!popupCandidates.length){state.phase='done';return result({kind:'date-selected'});}
@@ -133,6 +136,11 @@ export function batchReportDocument(command={action:'read'}){
    return result({kind:'native-date-requested'});
   }
   const confirms=panels.flatMap(p=>[...p.querySelectorAll('button,a,[role="button"]')]).filter(e=>shown(e)&&/^(确定|应用|查询|OK|Apply)$/.test(text(e))&&!e.disabled&&e.getAttribute('aria-disabled')!=='true');
+  if(['extend-confirm','extend-verify'].includes(state.phase)){
+   if(state.phase==='extend-confirm'&&confirms.length){if(confirms.length!==1)throw Error('日历确认按钮不唯一，未猜测');act(()=>confirms[0].click());state.phase='extend-verify';return result({kind:'date-range-extension-confirm'});}
+   if(!popupCandidates.length&&dates.at(-1)===end&&dates[0]<=start){state.phase='start';state.opened=false;state.openAttempts=0;return result({kind:'date-range-extended'});}
+   return result({kind:'date-range-extension-readback'});
+  }
   if((state.phase==='confirm'||exact&&state.opened)&&confirms.length){
    if(confirms.length!==1)throw Error('日历确认按钮不唯一，未猜测');
    act(()=>confirms[0].click());state.phase='verify';return result({kind:'date-confirm-requested'});
@@ -143,12 +151,22 @@ export function batchReportDocument(command={action:'read'}){
   }
   const range=primary.inputs.length===2||primary.values.length>1||Boolean(primary.inputs[0].closest('[class*="picker-range"],[class*="PickerRange"]'));
   if(state.opened&&panels.length){
-   const rawNodes=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime],[aria-label]')]).filter(e=>calendarNode(e)&&shown(e)&&!e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled')&&!/disabled/i.test(String(e.className))).filter(e=>cellDates(e).includes(wanted));
-   let nodes=[...new Set(rawNodes)].filter(e=>!rawNodes.some(child=>child!==e&&e.contains(child)));
-   if(nodes.length>1){const inMonth=nodes.filter(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return /cell-in-view|current-month/.test(String(cell.className))||cell.getAttribute('data-current-month')==='true';});if(inMonth.length===1)nodes=inMonth;}
+   const rawTargets=panels.flatMap(p=>[...p.querySelectorAll('[title],[data-date],[datetime],[aria-label]')]).filter(e=>calendarNode(e)&&cellDates(e).includes(wanted));
+   const leaves=[...new Set(rawTargets)].filter(e=>!rawTargets.some(child=>child!==e&&e.contains(child)));
+   const disabled=e=>Boolean(e.closest('[disabled],[aria-disabled="true"],.anq-picker-cell-disabled,.ant-picker-cell-disabled,.rc-picker-cell-disabled,.disabled,.is-disabled'));
+   const inMonth=leaves.filter(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return /(?:^|\s)(?:anq|ant|rc)-picker-cell-in-view(?:\s|$)|current-month/.test(String(cell.className))||cell.getAttribute('data-current-month')==='true';});const currentVisible=inMonth.filter(shown);let visible=currentVisible.length?currentVisible:inMonth.length===1?inMonth.filter(shown):leaves.filter(shown);
+   const nodes=visible.filter(e=>!disabled(e));
+   diagnostics.dateSelection.targetCandidates={date:wanted,total:leaves.length,visible:visible.length,enabled:nodes.length,samples:leaves.slice(0,6).map(e=>{const cell=e.closest('td,[role="gridcell"]')||e;return {tag:e.tagName,className:String(cell.className||'').slice(0,140),visible:shown(e),disabled:disabled(e),title:e.getAttribute('title')||cell.getAttribute('title'),ariaDisabled:e.getAttribute('aria-disabled')||cell.getAttribute('aria-disabled')};})};
    diagnostics.calendar=panels.map(p=>({tag:p.tagName,className:String(p.className||'').slice(0,100),dates:[...new Set([...p.querySelectorAll('[title],[data-date],[datetime],[aria-label]')].flatMap(e=>cellDates(e)))].slice(0,65)}));
-   if(nodes.length===1){act(()=>nodes[0].click());state.phase=state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
+   if(nodes.length===1){act(()=>nodes[0].click());state.phase=state.phase==='extend-end'?'extend-confirm':state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
    if(nodes.length>1)throw Error('目标日期单元格不唯一，未猜测');
+   if(visible.length&&visible.every(disabled)){
+    // Some range controls constrain start <= current end. Move only the end
+    // forward first, verify that temporary range, then select the target day.
+    if(state.phase==='start'&&start===end&&primary.inputs.length===2&&dates.at(-1)<start&&!state.extendedEnd){state.extendedEnd=true;state.phase='extend-end';state.openAttempts=0;return openInput(1,'calendar-end-first-requested');}
+    return result({kind:'date-target-disabled',errorCode:'calendar-target-disabled',recoverable:false,error:'目标日期在当前日历中被禁用，未绕过限制；请保留目标日期诊断'});
+   }
+   if(leaves.length&&!visible.length){const renderKey=state.phase+'|'+wanted;if(state.renderKey!==renderKey){state.renderKey=renderKey;state.renderAt=Date.now();}if(Date.now()-state.renderAt<1200)return result({kind:'calendar-target-rendering'});}else state.renderKey=null;
    const months=[...new Set(panels.flatMap(p=>[...norm(text(p)).matchAll(/(20\d{2})[年/-](\d{1,2})(?:月|$)/g)].map(m=>m[1]+'-'+m[2].padStart(2,'0'))))].sort();
    diagnostics.dateSelection.displayedMonths=months;
    const direction=months.length?(wanted.slice(0,7)<months[0]?'prev':wanted.slice(0,7)>months.at(-1)?'next':null):null;
@@ -159,10 +177,7 @@ export function batchReportDocument(command={action:'read'}){
   if(state.opened&&Date.now()-(state.openedAt||0)<1200)return result({kind:'calendar-opening'});
   if(popupCandidates.length&&!panels.length)return result({kind:'unsupported-calendar',errorCode:'calendar-format-unsupported',recoverable:false,error:'检测到日历弹层，但日期格式暂不支持；已停止重复开关，请保留日期诊断'});
   if(state.openAttempts>=3)return result({kind:'calendar-not-open',errorCode:'calendar-not-open',recoverable:state.phase==='start',error:'主日期控件未打开日历；已等待并尝试主输入框及外层范围控件，请保留日期诊断'});
-  const index=state.phase==='end'&&primary.inputs.length===2?1:0,input=primary.inputs[index];
-  let target=input;if(state.openAttempts===2)target=input.closest('[class*="picker-range"],[class*="PickerRange"]')||input.closest('[role="combobox"]')||input.closest('[class*="picker"]')||input;
-  act(()=>{target.scrollIntoView({block:'center'});target.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));input.focus();target.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));target.click();});
-  state.opened=true;state.openedAt=Date.now();state.openAttempts++;return result({kind:'calendar-requested',inputIndex:index});
+  const index=['end','extend-end'].includes(state.phase)&&primary.inputs.length===2?1:0;return openInput(index);
  }
  const modeNames=['全部','稳定成本推广','全店托管'];
  // Build one small label index per invocation, never rescan the document per row/column.
