@@ -6,7 +6,7 @@ root=Path(__file__).resolve().parents[1]/'edge-extension'
 origin='https://yingxiao.pinduoduo.com'
 fields=['总花费(元)','交易额(元)','净交易额(元)','净成交笔数','曝光量','点击量']
 headers='<tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr>'
-rows=['<tr><td>商品 ID：'+str(900224894500+i)+' 稳定成本推广</td>'+''.join('<td>24</td>' for _ in fields)+'</tr>' for i in range(13)]
+rows=['<tr><td>商品 ID：'+str(900224894500+i)+' 稳定成本推广<span>净目标投产比 '+format(2.5+i/100,'.2f')+'</span></td>'+''.join('<td>24</td>' for _ in fields)+'</tr>' for i in range(13)]
 total='<tr><td>合计数据（24条）</td>'+''.join('<td>312</td>' for _ in fields)+'</tr>'
 hours='<table><thead><tr><th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody>'+total+''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>13</td>' for _ in fields)+'</tr>' for i in range(24))+'</tbody></table>'
 controls='<nav>今日 昨日 近7日 近30日 近90日<input type="date" value="2026-11-01"></nav><nav><span aria-selected="true">全部</span><span>稳定成本推广</span><span>全店托管</span></nav><div><button>趋势图</button><button>表格</button></div>'
@@ -44,6 +44,7 @@ with sync_playwright() as p:
    const {createBatchDriver}=await import('/extension/batch-driver.js');const {validateOverall,validateHours,reconcileAccount}=await import('/extension/batch-model.js');
    const api={tabs:{get:async()=>({id:1,windowId:1,url:location.href,status:'complete'}),query:async()=>[{id:1}]},scripting:{executeScript:async({func,args})=>[{result:func(...args)}]}};
    const driver=createBatchDriver({tabId:1,api});const data=await driver.scan('2026-11-01',{account:true});
+   for(const p of data.products){const expected=Number((2.5+(Number(p.productId)-900224894500)/100).toFixed(2));if(p.settings?.targetRoas.state!=='observed'||p.settings.targetRoas.value!==expected)throw Error('target mismatched between virtual rows '+JSON.stringify(p));}
    const totals=validateHours(data.hourly,'全部').totals;validateOverall(data.summary,totals);reconcileAccount(data.products,totals);
    return {rows:data.products.length,hours:data.hourly.length,summary:data.summary.length,scrollEvents:window.scrollEvents,mounted:window.mounted,maxHorizontal:window.maxHorizontal,maxVertical:window.maxVertical,rootTop:document.scrollingElement.scrollTop,shellTop:document.querySelector('#shell').scrollTop};
   }''')

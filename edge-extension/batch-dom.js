@@ -261,7 +261,16 @@ export function batchReportDocument(command={action:'read'}){
    if(!headerGroups.some(g=>g.e===group)){const ordered=members.map(m=>{let c=m.e;while(c.parentElement&&c.parentElement!==group&&!members.some(other=>other.label!==m.label&&c.parentElement.contains(other.e)))c=c.parentElement;return {cell:c,label:m.label};}).sort((a,b)=>a.cell.getBoundingClientRect().left-b.cell.getBoundingClientRect().left);headerGroups.push({e:group,cells:ordered.map(x=>x.cell),labels:ordered.map(x=>x.label)});}break;
   }
  }
- const products=[];for(const row of rows){const matches=[...new Set([...text(row).matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];if(matches.length!==1)continue;const productId=matches[0],s=norm(text(row)),modes=['稳定成本推广','全店托管'].filter(x=>s.includes(x));if(modes.length!==1){diagnostics.missing.push('商品 '+productId+' 的推广模式未唯一识别');continue;}const mode=modes[0];const detail=exactElements('查看详情').filter(e=>row.contains(e));const href=detail.length===1?safeUnitURL(detail[0].closest('a')?.getAttribute('href')||''):null;products.push({productId,mode,adId:href?new URL(href).searchParams.get('adId'):null,unitURL:href,metrics:fieldsFor(row),detailsAvailable:detail.length===1});}
+ // Targets are setting observations, never performance metrics or historical proof.
+ const observedSettings=(row,mode)=>{
+  const base={source:'overview-product-row',scope:'promotion-link',temporalScope:'observed-at-collection',historicalSettingVerified:false};
+  if(mode!=='稳定成本推广')return {targetRoas:{...base,value:null,state:'managed-shared-not-collected'}};
+  const region=row.querySelector('td,[role="cell"]')||row;const nodes=[region,...region.querySelectorAll('span,div,p')].filter(e=>shown(e)&&/^(?:净)?目标投产比[:：]?/.test(norm(text(e))));
+  const candidates=nodes.map(e=>{const m=/^((?:净)?目标投产比)[:：]?(\d+(?:\.\d+)?)$/.exec(norm(text(e)));return m?{label:m[1],raw:m[2],value:Number(m[2])}:null;}).filter(Boolean);
+  const values=[...new Map(candidates.map(c=>[c.label+'|'+c.value,c])).values()];
+  return {targetRoas:{...base,...(values.length===1&&Number.isFinite(values[0].value)&&values[0].value>0?{...values[0],state:'observed'}:{value:null,state:values.length>1?'ambiguous':nodes.length?'unrecognized':'not-collected',samples:nodes.slice(0,4).map(e=>norm(text(e)).slice(0,60))})}};
+ };
+ const products=[];for(const row of rows){const matches=[...new Set([...text(row).matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];if(matches.length!==1)continue;const productId=matches[0],s=norm(text(row)),modes=['稳定成本推广','全店托管'].filter(x=>s.includes(x));if(modes.length!==1){diagnostics.missing.push('商品 '+productId+' 的推广模式未唯一识别');continue;}const mode=modes[0];const detail=exactElements('查看详情').filter(e=>row.contains(e));const href=detail.length===1?safeUnitURL(detail[0].closest('a')?.getAttribute('href')||''):null;products.push({productId,mode,adId:href?new URL(href).searchParams.get('adId'):null,unitURL:href,settings:observedSettings(row,mode),metrics:fieldsFor(row),detailsAvailable:detail.length===1});}
  const hourly=[];for(const row of rows){const raw=text(row),m=/^\s*(\d{1,2}):00\s*[~～至—–-]\s*(\d{1,2}):(00|59)/.exec(raw);if(!m)continue;const hour=Number(m[1]);if(hour>23||!(Number(m[2])===hour+1&&m[3]==='00'||Number(m[2])===hour&&m[3]==='59'))continue;hourly.push({hour,metrics:fieldsFor(row)});}
  // Read displayed overall cards independently of table/hourly totals.
  // Accept one current value immediately following a label; do not invent totals.

@@ -20,3 +20,5 @@
 所有页面金额字符串按列名保留元；只有共享组amountFen等明确命名字段使用分。date是统计日，capturedAt是采集时刻；不同采集时刻的数据可能因平台后续归因变化而变化。没有成本/运费/售后输入，不能据此宣称利润或最终结算金额。
 
 导出时重新核对完成引用是否存在、统计日、链接身份、24小时、账户合计及链接日汇总与小时合计；缺数据或不一致不会标完整。诊断DOM、滚动日志、其它任务和重复字段名从精简文件移除，完整文件仍保留。不会修改本机仓库。
+
+0.12.24：根settingsCoverage独立于task.complete；账户links[].settings.targetRoas和链接record.settings.targetRoas保留行内目标投产观察，含label/raw/value/state/source/scope、observedAt、snapshotDate、historicalSettingVerified=false。旧值缺失明确not-collected；托管managed-shared-not-collected。禁止把切历史日期时看到的设置当历史生效值，禁止将目标/实际/订单实收保本投产混用。

@@ -8,7 +8,7 @@ with sync_playwright() as p:
  page=b.new_page()
  body='<nav>今日 昨日 近7日 近30日 近90日<input value="2026-10-30"></nav><nav><span aria-selected="true">全部</span><span>稳定成本推广</span><span>全店托管</span></nav>'
  body+='<table><thead><tr><th>商品</th>'+''.join('<th><span>'+x+'</span></th>' for x in fields)+'</tr></thead><tbody>'
- for i in range(100):body+='<tr><td>商品 ID：'+str(900224890000+i)+' 稳定成本推广 <a>查看详情</a></td>'+''.join('<td><div><span>10</span></div></td>' for x in fields)+'</tr>'
+ for i in range(100):body+='<tr><td>商品 ID：'+str(900224890000+i)+' 稳定成本推广 <span>净目标投产比 2.85</span> <a>查看详情</a></td>'+''.join('<td><div><span>10</span></div></td>' for x in fields)+'</tr>'
  body+='</tbody></table>'+''.join('<div><span>无关导航 '+str(i)+'</span></div>' for i in range(5000))
  page.route('https://yingxiao.pinduoduo.com/**',lambda r:r.fulfill(body=body,content_type='text/html; charset=utf-8'))
  page.goto('https://yingxiao.pinduoduo.com/goods/report/promotion/overView')

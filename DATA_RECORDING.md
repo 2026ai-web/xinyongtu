@@ -1,4 +1,4 @@
-# 数据记录口径（v0.12.23）
+# 数据记录口径（v0.12.24）
 
 当前用途是保存准确原始记录及明确来源的派生记录，供以后分析。没有利润计算、GPT调用、调价或投放执行。
 
@@ -100,3 +100,9 @@ promotion.values保持页面原字符串/金额元，accounting.summary和produc
 0.12.23订单口径：accountingPolicy=paid-orders-blank-sku-supplement-v1。取消/退款成功/售后处理中先剔除；待付款单独剔除；无售后或售后取消的待发货、待收货、已收货纳入。空SKU按用户确认统一补差价，orderKind=supplement、quantity=0、unitFullCostFen=skuCostFen=0，sourceQuantity保留原数量；summary及商品分组的supplementOrders/supplementRevenueFen记录笔数/金额，纳入订单数包含补差价，商品件数不含补差价数量。非空SKU未匹配/冲突不能用零成本，缺SKU列仍错误；未知状态仍待确认。
 
 手续费按每一天全部纳入实收（含补差价）合计3.5%取整，不逐单取整后累加。单独39元手续费1.37元，而加入已有当天实收后手续费增量可能因合计舍入相差1分；商品最大余数分配继续保证全店一致。全店广告费含共享部分扣一次，商品托管费用不明保持null。新分析导出识别规则版本、核对补差价标记/0商品成本/0商品件数/原数量/汇总；无该政策标记的旧报告只能按旧SKU口径审计，不追认旧失败。旧记录不变，新核算需重导CSV。
+
+0.12.24新增观察设置：同商品同行、稳定成本推广模式的完整标签“净目标投产比”或“目标投产比”及正数读入settings.targetRoas，保留label/raw/value。source=overview-product-row、scope=promotion-link、temporalScope=observed-at-collection；observedAt采用该账户快照保存时刻，snapshotDate是报表统计日而非生效日期，historicalSettingVerified=false。设置不是总花费/净实际投产等绩效指标，不参与利润计算或小时求和。
+
+隐藏/缺失/未识别/歧义分别保留not-collected/unrecognized/ambiguous，不补零，不跨商品/模式/日期借值。滚动先缺后唯一可补；精确观察值在扫描中变化时停止，歧义保持不可确认。托管用managed-shared-not-collected，仍以共享组处理。新账户保存后详情dailyOverall继承该行设置及原观察时刻；导出链接和详情均保留。settingsCoverage统计稳定链接日目标读取覆盖，与三层金额/小时覆盖分开，旧完成任务/完整财务不等于设置已采全。
+
+旧记录不改写，不反推历史目标，不自动重跑已完成数据；新任务读取现场设置。重采已核算统计日会产生新capturedAt，按已有快照一致性要求需重导该日订单核算，不能偷偷给旧核算换引用。

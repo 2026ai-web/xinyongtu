@@ -11,7 +11,7 @@ def html(unit=False):
     headers='<th>时段</th>'+''.join('<th>'+f+'</th>' for f in fields)
     hours=''.join('<tr><td>'+str(i)+':00-'+str(i)+':59</td>'+''.join('<td>1</td>' for f in fields)+'</tr>' for i in range(24))
     hours='<tr><td>合计数据（24条）</td>'+''.join('<td>24</td>' for f in fields)+'</tr>'+hours
-    products='' if unit else '<p>合计数据（1条）</p><table><thead><tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody><tr><td>商品 ID：900224894507 稳定成本推广 <a href="/goods/report/promotion/unit?adId=9146588221&beginDate=2026-10-30&endDate=2026-10-30">查看详情</a></td>'+''.join('<td>24</td>' for f in fields)+'</tr></tbody></table>'
+    products='' if unit else '<p>合计数据（1条）</p><table><thead><tr><th>商品</th>'+''.join('<th>'+f+'</th>' for f in fields)+'</tr></thead><tbody><tr><td>商品 ID：900224894507 稳定成本推广 <span class="anq-tag">净目标投产比 2.85</span> <a href="/goods/report/promotion/unit?adId=9146588221&beginDate=2026-10-30&endDate=2026-10-30">查看详情</a></td>'+''.join('<td>24</td>' for f in fields)+'</tr></tbody></table>'
     summary='<section><h2>数据概况</h2>'+''.join('<div><span>'+f+'</span><strong>24</strong></div>' for f in fields[:6])+'</section>'
     return '<style>td,th{min-width:90px;padding:4px}nav{padding:8px}input{width:150px}</style>'+controls+summary+'<table><thead><tr>'+headers+'</tr></thead><tbody>'+hours+'</tbody></table>'+products+'<button onclick="window.bad=true">调整预算</button>'
 with sync_playwright() as p:
@@ -30,6 +30,14 @@ with sync_playwright() as p:
     assert data['context']['primaryVerified'] and data['context']['selectedMode']=='全部',data
     assert len(data['hourly'])==24 and len(data['products'])==1,data
     assert data['products'][0]['adId']=='9146588221',data
+    target=data['products'][0]['settings']['targetRoas'];assert target['state']=='observed' and target['value']==2.85 and target['label']=='净目标投产比' and not target['historicalSettingVerified']
+    # Split label/value, missing, hidden, ambiguous, actual-ROAS decoys, managed isolation.
+    for badge,state,value in [('<b>净目标投产比</b><span>2.80</span>','observed',2.8),('实际投产比 9.99','not-collected',None),('<span style="display:none">净目标投产比2.85</span>','not-collected',None),('<span>净目标投产比2.85</span><span>净目标投产比2.80</span>','ambiguous',None),('净目标投产比--','unrecognized',None)]:
+        page.locator('.anq-tag').evaluate('(e,h)=>e.innerHTML=h',badge);t=page.evaluate("dom({action:'read'}).products[0].settings.targetRoas");assert t['state']==state and t['value']==value,t
+    page.locator('.anq-tag').evaluate("e=>e.innerHTML='净目标投产比2.85'")
+    page.locator('.anq-tag').evaluate("e=>e.parentElement.firstChild.textContent=e.parentElement.firstChild.textContent.replace('稳定成本推广','全店托管')")
+    assert page.evaluate("dom({action:'read'}).products[0].settings.targetRoas.state")=='managed-shared-not-collected'
+    page.locator('.anq-tag').evaluate("e=>e.parentElement.firstChild.textContent=e.parentElement.firstChild.textContent.replace('全店托管','稳定成本推广')")
     assert page.evaluate("model.validateHours(dom({action:'read'}).hourly,'全部').complete")
     # Independent horizontally scrolled body tables and sticky sibling headers.
     page.evaluate("""()=>{for(const table of [...document.querySelectorAll('table')]){const wrapper=document.createElement('section');table.before(wrapper);const head=document.createElement('table');head.append(table.querySelector('thead'));const spacer=document.createElement('th');spacer.className='anq-table-cell-scrollbar';head.querySelector('tr').append(spacer);wrapper.className='anq-table-container';wrapper.append(head);const scroller=document.createElement('div');scroller.style.cssText='width:400px;overflow:auto';wrapper.append(scroller);scroller.append(table);scroller.scrollLeft=150;}}""")
@@ -71,6 +79,15 @@ with sync_playwright() as p:
     }''')
     assert integration['job']['phase']=='complete',integration
     assert len(integration['data']['datasets'])==2,integration
+    account=next(r for r in integration['data']['datasets'] if r['type']=='account-day');unit=next(r for r in integration['data']['datasets'] if r['type']=='unit-day');setting=account['products'][0]['settings']
+    assert setting['targetRoas']['observedAt']==account['capturedAt'] and setting['targetRoas']['snapshotDate']==account['date']
+    assert unit['dailyOverall']['settings']==setting
+    exported=page.evaluate("""async()=>{const {createBatchStore}=await import('/extension/batch-store.js'),{createGptExport}=await import('/extension/gpt-export.js'),{createAnalysisExport}=await import('/extension/analysis-export.js'),{createFullBackup,restoreFullBackup}=await import('/extension/backup-runtime.js');const s=createBatchStore(),data=await s.export('integration'),job=await s.latest('integration'),gpt=createGptExport(data,job),analysis=createAnalysisExport({shop:'integration',dates:job.dates,warehouse:data,reports:[],costVersions:[]});const backup=await createFullBackup('test-settings');await s.clear();await restoreFullBackup(backup);return {gpt,analysis,restored:await s.export('integration')};}""")
+    assert exported['gpt']['settingsCoverage']['complete']
+    assert exported['analysis']['promotion']['records'][0]['links'][0]['settings']==setting
+    assert '未经历史设置验证' in exported['analysis']['guide']['targetRoas']
+    restored=next(r for r in exported['restored']['datasets'] if r['type']=='account-day');assert restored['products'][0]['settings']==setting
+
     page.add_init_script("window.chrome={tabs:{onActivated:{addListener:()=>{}},onUpdated:{addListener:()=>{}}}}")
     errors=[]
     page.on('pageerror',lambda error: errors.append(str(error)))
