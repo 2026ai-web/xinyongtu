@@ -19,12 +19,22 @@ with tempfile.TemporaryDirectory(prefix='cost-accounting-') as tmp, sync_playwri
  def route(r):
   name=r.request.url.split('?')[0].replace(origin+'/extension/','');r.fulfill(body=(root/name).read_text(),content_type='text/html; charset=utf-8' if name.endswith('.html') else 'text/css' if name.endswith('.css') else 'application/javascript')
  page.route(origin+'/extension/**',route);page.goto(origin+'/extension/panel.html');page.evaluate("async r=>{await (await import('./batch-store.js')).createBatchStore().saveDataset(r)}",account)
- page.locator('#shopLabel').fill(shop);page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costTools details').evaluate('(e)=>e.open=true');page.locator('#costEffective').fill('2026-10-31');page.locator('#costFile').set_input_files(cost);page.locator('#costImport').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('已仅保存在本机')");page.reload();page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costDate').fill('2026-10-31');page.locator('#orderFile').set_input_files(orders);page.locator('#costDateConfirmed').check();page.locator('#costCalculate').click();page.wait_for_function("!document.querySelector('#costExport').disabled")
+ page.locator('#shopLabel').fill(shop);page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costSettings').evaluate('(e)=>e.open=true');page.locator('#costEffective').fill('2026-10-31');page.locator('#costFile').set_input_files(cost);page.locator('#costImport').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('已仅保存在本机')");page.reload();page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costDate').fill('2026-10-31');page.locator('#orderFile').set_input_files(orders);page.locator('#costDateConfirmed').check();page.locator('#costCalculate').click();page.wait_for_function("!document.querySelector('#costExport').disabled")
  with page.expect_download() as event:page.locator('#costExport').click()
  target=tmp/'result.json';event.value.save_as(target);report=json.loads(target.read_text());assert report['complete'],report['issues'];assert report['productAccounting']['complete'],report['productAccounting']['issues'];assert report['productAccounting']['reconciliation']['shopBalanceMatches'];assert page.locator('#costProducts tbody tr').count()==len(report['productAccounting']['products']);assert report['summary']['balanceFen']==expected,report['summary'];assert report['costVersion']['effectiveFrom']=='2026-10-31'
  if real:assert report['summary']['includedOrders']==462 and report['summary']['excludedOrders']==75 and report['summary']['quantity']==470
+ # Compact sidebar shows only five columns; audit details are closed by default.
+ assert page.locator('#costProducts thead th').all_text_contents()==['商品','营业额','单量','经营结余','投产比']
+ assert not page.locator('#costShopDetails').evaluate('(e)=>e.open')
+ assert not page.locator('.costExpandedDetails').evaluate('(e)=>e.open')
+ page.set_viewport_size({'width':360,'height':900})
+ assert page.locator('.costCompactTable').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
+ for i,product in enumerate(report['productAccounting']['products']):
+  values=page.locator('#costProducts tbody tr').nth(i).locator('td').all_text_contents()
+  expected_roas='无法确定' if product['adSpendFen'] is None else '—' if product['adSpendFen']==0 else f"{product['revenueFen']/product['adSpendFen']:.2f}"
+  assert values[4]==expected_roas,(values,expected_roas)
  # Cost backup contains local versions and can be restored after local cost DB removal.
- page.locator('#costTools details').evaluate('(e)=>e.open=true')
+ page.locator('#costSettings').evaluate('(e)=>e.open=true')
  with page.expect_download() as event:page.locator('#costBackup').click()
  backup=tmp/'cost-backup.json';event.value.save_as(backup)
  page.evaluate("async()=>{const {costStorage}=await import('./cost-panel.js');for(const v of await costStorage('versions','getAll'))await costStorage('versions','delete',v.id)}")
