@@ -1,3 +1,4 @@
+import {installAdjustmentPanel} from './adjustment-panel.js';
 import {installBackupPanel} from './backup-panel.js';
 await installBackupPanel();
 import {installCostPanel} from './cost-panel.js';
@@ -189,3 +190,4 @@ installBatchPanel({beforeStart:()=>{reportNavController?.abort();stopAutomatic()
 new MutationObserver(renderRunState).observe($('batchStatus'),{childList:true,subtree:true,characterData:true});
 
 installCostPanel();
+installAdjustmentPanel();

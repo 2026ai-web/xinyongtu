@@ -1,3 +1,4 @@
+import {listAdjustments} from './adjustment-panel.js';
 import {createAnalysisExport} from './analysis-export.js';
 import {costStorage} from './cost-panel.js';
 import {dataLock} from './local-data-lock.js';
@@ -39,7 +40,7 @@ export function installBatchPanel({beforeStart,setRunning}){
  $('batchAnalysisExport').onclick=async()=>{try{
   if(controller||$('costCalculate').disabled)throw Error('请先等待采集、核算或成本导入完成');
   const shop=$('shopLabel').value.trim(),options=selection(),dates=requestedDates(options.days,Date.now(),'startDate' in options?{start:options.startDate,end:options.endDate}:null);if(!shop)throw Error('请填写店铺备注');
-  const warehouse=await store.export(shop),reports=await costStorage('reports','getAll'),costVersions=await costStorage('versions','getAll');const payload=createAnalysisExport({shop,dates,warehouse,reports,costVersions,extensionVersion:chrome.runtime?.getManifest?.().version||'unknown'});
+  const warehouse=await store.export(shop),reports=await costStorage('reports','getAll'),costVersions=await costStorage('versions','getAll');const payload=createAnalysisExport({shop,dates,warehouse,reports,costVersions,adjustments:await listAdjustments(),extensionVersion:chrome.runtime?.getManifest?.().version||'unknown'});
   const url=URL.createObjectURL(new Blob([JSON.stringify(payload)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-analysis-'+dates[0]+'-'+dates.at(-1)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   status('GPT经营分析资料已本机导出：'+dates[0]+' 至 '+dates.at(-1)+'；推广完整'+payload.coverage.filter(d=>d.promotionComplete).length+'/'+dates.length+'天，核算有效'+payload.coverage.filter(d=>d.accountingValid).length+'/'+dates.length+'天，快照匹配'+payload.coverage.filter(d=>d.snapshotsMatched).length+'/'+dates.length+'天；'+(payload.complete?'资料完整':'资料未完整，请先查看缺失/快照说明')+'。未发送给GPT。');
  }catch(e){status('经营分析导出失败：'+e.message);}};

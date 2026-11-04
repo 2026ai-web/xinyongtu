@@ -1,3 +1,4 @@
+import {adjustmentExport} from './adjustment-model.js';
 import {createGptExport} from './gpt-export.js';
 import {datasetKey} from './batch-model.js';
 import {productAccounting} from './product-accounting.js';
@@ -22,7 +23,7 @@ function auditReport(report,versions){
  }catch(e){errors.push(e.message);}
  return {valid:!errors.length,errors};
 }
-export function createAnalysisExport({shop,dates,warehouse,reports,costVersions,extensionVersion='unknown',exportedAt=new Date().toISOString()}){
+export function createAnalysisExport({shop,dates,warehouse,reports,costVersions,adjustments=[],extensionVersion='unknown',exportedAt=new Date().toISOString()}){
  if(!shop||warehouse.shop!==shop)throw Error('请选择同一店铺的数据');if(!Array.isArray(dates)||!dates.length||dates.length>30||!dates.every(validDay)||new Set(dates).size!==dates.length)throw Error('分析日期无效');dates=[...dates].sort();
  // Encode saved snapshots without fabricating a completed collection task.
  const selector={id:'saved-date-selection',shop,dates,phase:'snapshot-selection',completedDays:{},units:{}};const selected=(warehouse.datasets||[]).filter(r=>r.shop===shop&&dates.includes(r.date));
@@ -48,7 +49,7 @@ export function createAnalysisExport({shop,dates,warehouse,reports,costVersions,
   }
   return {date,promotionComplete:!!promo?.complete,accountingPresent:!!candidates.length,accountingValid:!!accounting?.checks.valid,snapshotsMatched:matched,complete:matched&&!!accounting?.productAccounting?.complete,reasons:[...new Set(reasons)],accounting};
  });
- return {schemaVersion:'xinyongtu-gpt-analysis-1',extensionVersion,exportedAt,shopNote:shop,shopIdentityVerified:false,dates,complete:days.every(d=>d.complete),coverage:days.map(({accounting,...d})=>d),
-  guide:{targetRoas:encoded.guide.targetRoas,purpose:'本机数据资料，供人工交给GPT分析；不是模型结论或店铺操作指令。',money:'promotion.values金额保留原字符串元；accounting.summary及productAccounting金额为整数分。',ordersScope:'经营结果只覆盖导入订单；自动识别订单日期不认证店铺身份或全天导出完整性，不能把部分订单当已核实全天。',accounting:'按商品ID跨推广模式汇总订单一次；剔除取消/退款成功/售后处理中收入及成本；非空SKU整套成本乘购买件数；新口径空SKU补差价计收入、0商品成本/件数，已付款待发货纳入、待付款剔除；实收合计扣3.5%及全部账户推广费。不是包含全部损益的最终净利润。',missing:'缺记录不补零，失败/快照不一致先说明，不能拼接成已核实盈亏。fieldAvailability保留原采集状态；unknown不代表0，需结合实际值、来源及checks说明，不能擅自改值。',shared:'托管共享费用不分摊，不能与账户花费重复相加。相关商品广告后结余和订单实收投产无法确定，不用零替代。',roas:'后台归因投产保留在promotion指标；订单实收投产为商品revenueFen/adSpendFen，两者口径不同，不混称。广告费为0显示—，共享费用不明时不计算完整投产。',time:'date为统计日，capturedAt/createdAt为不同采集/核算时刻，推广归因交易额不是订单实收，不能当同一批成交或相加；小时推广数据不代表逐小时订单利润。',unknown:'SKU成交明细、预算与目标投产、操作日志、最终结算及售后损益不能从本文件猜测。',privacy:'不包含订单号、逐单SKU明细或完整成本表；仅保留商品汇总、成本版本及推广数据。',analysisRequest:'先核对coverage和缺失说明，再分析整体/商品/时段变化；区分事实与假设，给出有依据的人工建议，不自动操作店铺。'},
+ return {schemaVersion:'xinyongtu-gpt-analysis-1',extensionVersion,exportedAt,shopNote:shop,shopIdentityVerified:false,dates,complete:days.every(d=>d.complete),coverage:days.map(({accounting,...d})=>d),adjustments:adjustmentExport(adjustments,shop,dates),
+  guide:{targetRoas:encoded.guide.targetRoas,purpose:'本机数据资料，供人工交给GPT分析；不是模型结论或店铺操作指令。',money:'promotion.values金额保留原字符串元；accounting.summary及productAccounting金额为整数分。',ordersScope:'经营结果只覆盖导入订单；自动识别订单日期不认证店铺身份或全天导出完整性，不能把部分订单当已核实全天。',accounting:'按商品ID跨推广模式汇总订单一次；剔除取消/退款成功/售后处理中收入及成本；非空SKU整套成本乘购买件数；新口径空SKU补差价计收入、0商品成本/件数，已付款待发货纳入、待付款剔除；实收合计扣3.5%及全部账户推广费。不是包含全部损益的最终净利润。',missing:'缺记录不补零，失败/快照不一致先说明，不能拼接成已核实盈亏。fieldAvailability保留原采集状态；unknown不代表0，需结合实际值、来源及checks说明，不能擅自改值。',shared:'托管共享费用不分摊，不能与账户花费重复相加。相关商品广告后结余和订单实收投产无法确定，不用零替代。',roas:'后台归因投产保留在promotion指标；订单实收投产为商品revenueFen/adSpendFen，两者口径不同，不混称。广告费为0显示—，共享费用不明时不计算完整投产。',time:'date为统计日，capturedAt/createdAt为不同采集/核算时刻，推广归因交易额不是订单实收，不能当同一批成交或相加；小时推广数据不代表逐小时订单利润。',unknown:'未采集的SKU成交明细、预算、历史生效目标、平台完整操作日志、最终结算及售后损益不能猜测；人工调整记录不等于平台完整操作日志。',privacy:'不包含订单号、逐单SKU明细或完整成本表；仅保留商品汇总、成本版本及推广数据；人工调整备注按原文附带。',analysisRequest:'先核对coverage和缺失说明，再分析整体/商品/时段变化；区分事实与假设，给出有依据的人工建议，不自动操作店铺。'},
   promotion:{settingsCoverage:encoded.settingsCoverage,source:'selected-dates-saved-snapshots',metricColumns:encoded.metricColumns,encoding:encoded.guide.metricEncoding,records:encoded.records},days};
 }

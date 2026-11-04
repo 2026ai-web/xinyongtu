@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {makeBackup,checkBackup,planRestore} from '../edge-extension/backup-model.js';
-const empty=()=>({warehouse:{jobs:[],datasets:[],meta:[]},costs:{versions:[],reports:[]},history:{history:[]},preferences:[]});
+const empty=()=>({warehouse:{jobs:[],datasets:[],meta:[]},costs:{versions:[],reports:[]},history:{history:[]},adjustments:{events:[]},preferences:[]});
 const version=()=>({id:'v1',effectiveFrom:'2026-10-01',importedAt:'2026-11-03',costs:{map:{SKU:{values:[1000]}},duplicates:0}});
 test('backup integrity detects modification; only supported full backup accepted',async()=>{const p=empty(),b=await makeBackup(p);assert.deepEqual(await checkBackup(b),p);b.payload.costs.versions.push(['v1',version()]);await assert.rejects(checkBackup(b),/校验/);await assert.rejects(checkBackup({schemaVersion:'other'}));});
 test('restore adds only missing records, skips equal, rejects conflicting contents without mutation',()=>{const input=empty(),current=empty();input.costs.versions.push(['v1',version()]);const before=structuredClone(current),plan=planRestore(input,current);assert(plan.canRestore);assert.equal(plan.counts['costs/versions'].add,1);assert.deepEqual(current,before);assert.equal(planRestore(input,plan.merged).counts['costs/versions'].same,1);const changed=structuredClone(input);changed.costs.versions[0][1].costs.map.SKU.values=[2000];assert(!planRestore(changed,plan.merged).canRestore);assert.deepEqual(input.costs.versions[0][1],version());});

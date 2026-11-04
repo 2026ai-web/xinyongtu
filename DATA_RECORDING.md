@@ -1,4 +1,4 @@
-# 数据记录口径（v0.12.24）
+# 数据记录口径（v0.12.25）
 
 当前用途是保存准确原始记录及明确来源的派生记录，供以后分析。没有利润计算、GPT调用、调价或投放执行。
 
@@ -106,3 +106,7 @@ promotion.values保持页面原字符串/金额元，accounting.summary和produc
 隐藏/缺失/未识别/歧义分别保留not-collected/unrecognized/ambiguous，不补零，不跨商品/模式/日期借值。滚动先缺后唯一可补；精确观察值在扫描中变化时停止，歧义保持不可确认。托管用managed-shared-not-collected，仍以共享组处理。新账户保存后详情dailyOverall继承该行设置及原观察时刻；导出链接和详情均保留。settingsCoverage统计稳定链接日目标读取覆盖，与三层金额/小时覆盖分开，旧完成任务/完整财务不等于设置已采全。
 
 旧记录不改写，不反推历史目标，不自动重跑已完成数据；新任务读取现场设置。重采已核算统计日会产生新capturedAt，按已有快照一致性要求需重导该日订单核算，不能偷偷给旧核算换引用。
+
+0.12.25人工推广调整：独立IndexedDB xinyongtu-adjustments/events，schema promotion-adjustment-1，source=manual-entry，mode=稳定成本推广，targetType=净目标投产比。商品ID、店铺、实际时间、前后原文正数及原因必填；北京时间转UTC存changedAt，createdAt是录入时刻。不能填未来、相同前后值或未知模式，不自动操作店铺，也不拿采集观察来证明手动调整已执行。
+
+status=voided保留原内容、voidedAt及voidReason，不删除、不用于效果分析；同ID作废后恢复旧活跃备份视为冲突并停止整次恢复，不偷偷覆盖。列表仅显示当前店铺最近20条，但最多5000条全部本机保存。分析adjustments按当前店铺全量带出，并标记相对所选日期before-period/within-period/after-period（不连续日期间隙between-selected-dates）。后发生记录不能解释早期盈亏，缺记录不等于无操作，不自动判定因果。

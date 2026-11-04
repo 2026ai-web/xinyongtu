@@ -29,3 +29,5 @@
 0.12.23：accounting.accountingPolicy区分新版paid-orders-blank-sku-supplement-v1与legacy-sku-orders。仅新版允许无售后待发货、待付款剔除与明确空SKU补差价；导出核对逐单补差价例外及汇总后只保留汇总，不输出原数量/订单号/逐单SKU。summary和productAccounting增加supplementOrders及supplementRevenueFen，商品quantity不含补差价数量。旧失败不会被新规则自动判为成功，需重导原CSV重算。
 
 0.12.24：promotion.settingsCoverage及promotion.records的设置字段随精简数据保留，guide.targetRoas明确观察时间与统计日区别；账户links和链接记录都带目标观察。原分析complete仍是财务/推广快照匹配，不代表目标设置或历史生效设置已完整。旧七天资料不自动补设置，不应为收集当前设置伪造历史快照。
+
+0.12.25根adjustments保存当前店铺人工调整记录及相对日期关系、作废审计。记录包含before/after原文、changedAt/createdAt UTC、timeZone=Asia/Shanghai、reason、source=manual-entry；不自动认证平台执行或设置持续有效。未来于分析区间的记录单列after-period，不倒用解释历史。财务complete不依赖人工记录是否齐全；historyComplete=false声明不是完整平台日志。备注按原文附带，不自动生成效果结论。

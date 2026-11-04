@@ -1,7 +1,7 @@
 from pathlib import Path
 import zipfile,hashlib,json
 root=Path(__file__).resolve().parents[1]
-files=['manifest.json','background.js','panel.html','panel.css','panel.js','reader.js','auto-collector.js','snapshot-quality.js','history.js','freshness.js','refresh-cycle.js','report-entry.js','report-navigation.js','batch-dom.js','batch-model.js','gpt-export.js','analysis-export.js','cost-model.js','product-accounting.js','cost-panel.js','xlsx-reader.js','local-data-lock.js','backup-model.js','backup-runtime.js','backup-panel.js','batch-store.js','batch-driver.js','batch-runner.js','batch-panel.js','使用说明.txt']
+files=['manifest.json','background.js','panel.html','panel.css','panel.js','reader.js','auto-collector.js','snapshot-quality.js','history.js','freshness.js','refresh-cycle.js','report-entry.js','report-navigation.js','batch-dom.js','batch-model.js','gpt-export.js','analysis-export.js','adjustment-model.js','adjustment-panel.js','cost-model.js','product-accounting.js','cost-panel.js','xlsx-reader.js','local-data-lock.js','backup-model.js','backup-runtime.js','backup-panel.js','batch-store.js','batch-driver.js','batch-runner.js','batch-panel.js','使用说明.txt']
 version=json.loads((root/'edge-extension/manifest.json').read_text())['version']
 out=root/'dist';out.mkdir(exist_ok=True);target=out/f'xinyongtu-edge-sidebar-{version}.zip'
 with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
