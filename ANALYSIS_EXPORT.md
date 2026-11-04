@@ -25,3 +25,5 @@
 可随文件发送：
 
 > 请先读取guide并核对coverage。按天分析整体、商品及小时推广差异，结合已核对的订单经营汇总。缺核算或快照不匹配先说明，不能补零或借其它日期；托管共享不分摊，订单实收与归因交易额不混加。列出有数据依据的问题、建议及待补资料，区分事实与假设，不自动操作店铺。
+
+0.12.23：accounting.accountingPolicy区分新版paid-orders-blank-sku-supplement-v1与legacy-sku-orders。仅新版允许无售后待发货、待付款剔除与明确空SKU补差价；导出核对逐单补差价例外及汇总后只保留汇总，不输出原数量/订单号/逐单SKU。summary和productAccounting增加supplementOrders及supplementRevenueFen，商品quantity不含补差价数量。旧失败不会被新规则自动判为成功，需重导原CSV重算。

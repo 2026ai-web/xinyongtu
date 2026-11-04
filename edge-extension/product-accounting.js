@@ -4,8 +4,8 @@ import {metricNumber,validateHours,validateOverall} from './batch-model.js';
 // same order across campaigns, or distribute shared managed advertising cost.
 export function productAccounting(report,account=null){
  const groups=new Map(),issues=[];
- const group=id=>{if(!groups.has(id))groups.set(id,{productId:id,includedOrders:0,excludedOrders:0,pendingOrders:0,quantity:0,revenueFen:0,skuCostFen:0,platformFeeFen:0,beforeAdBalanceFen:null,knownAdSpendFen:null,adSpendFen:null,afterAdBalanceFen:null,promotions:[],notes:[]});return groups.get(id);};
- for(const row of report.details){const id=/^\d{6,20}$/.test(row.productId||'')?row.productId:null,g=group(id);if(row.included){g.includedOrders++;g.quantity+=row.quantity;g.revenueFen+=row.revenueFen;g.skuCostFen+=row.skuCostFen;}else if(row.reason==='取消/退款/售后处理中，收入与成本均剔除')g.excludedOrders++;else g.pendingOrders++;}
+ const group=id=>{if(!groups.has(id))groups.set(id,{productId:id,includedOrders:0,excludedOrders:0,pendingOrders:0,supplementOrders:0,supplementRevenueFen:0,quantity:0,revenueFen:0,skuCostFen:0,platformFeeFen:0,beforeAdBalanceFen:null,knownAdSpendFen:null,adSpendFen:null,afterAdBalanceFen:null,promotions:[],notes:[]});return groups.get(id);};
+ for(const row of report.details){const id=/^\d{6,20}$/.test(row.productId||'')?row.productId:null,g=group(id);if(row.included){g.includedOrders++;if(row.orderKind==='supplement'){g.supplementOrders++;g.supplementRevenueFen+=row.revenueFen;}g.quantity+=row.quantity;g.revenueFen+=row.revenueFen;g.skuCostFen+=row.skuCostFen;}else if(['取消/退款/售后处理中，收入与成本均剔除','待付款，收入与成本均剔除'].includes(row.reason))g.excludedOrders++;else g.pendingOrders++;}
  // Largest remainder allocation of the already rounded whole-shop fee.
  // This is a bookkeeping allocation, not an observed platform per-product fee.
  let assigned=0;const ranked=[...groups.values()].map(g=>{const numerator=g.revenueFen*35;g.platformFeeFen=Math.floor(numerator/1000);assigned+=g.platformFeeFen;return {g,remainder:numerator%1000};}).sort((a,b)=>b.remainder-a.remainder||String(a.g.productId||'').localeCompare(String(b.g.productId||''),'en'));

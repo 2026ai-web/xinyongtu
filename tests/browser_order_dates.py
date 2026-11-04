@@ -1,10 +1,16 @@
 """Seven days from order IDs across multiple CSV files; no date-picker work."""
 from pathlib import Path
-import csv,json,tempfile
+import csv,json,tempfile,sys
 from playwright.sync_api import sync_playwright
 root=Path(__file__).resolve().parents[1]/'edge-extension';origin='https://yingxiao.pinduoduo.com';dates=['2026-10-28','2026-10-29','2026-10-30','2026-10-31','2026-11-01','2026-11-02','2026-11-03'];header=['订单号','订单状态','商品数量(件)','商品id','商家编码-规格维度','售后状态','商家实收金额(元)']
 with sync_playwright() as p,tempfile.TemporaryDirectory(prefix='order-dates-') as tmp:
+ rules='--rules-v23' in sys.argv
  tmp=Path(tmp);rows=[[d[2:].replace('-','')+'-'+str(i+1000),'已收货','1','900224894507','SKU','无售后或售后取消','100'] for i,d in enumerate(dates)]
+ if rules:
+  rows=[]
+  for i,d in enumerate(dates):
+   prefix=d[2:].replace('-','')
+   for j,(status,sku,q,amount,after) in enumerate([('待发货','SKU','1','100','无售后或售后取消'),('已收货','','3900','39','无售后或售后取消'),('待付款','','3900','39','无售后或售后取消'),('待发货','','3900','39','售后处理中')]):rows.append([prefix+'-'+str(i*10+j+1000),status,q,'900224894507',sku,after,amount])
  def file(name,records):
   path=tmp/name
   with path.open('w',encoding='utf-8-sig',newline='') as f:w=csv.writer(f);w.writerow(header);w.writerows(records)
@@ -13,13 +19,21 @@ with sync_playwright() as p,tempfile.TemporaryDirectory(prefix='order-dates-') a
  def route(r):
   name=r.request.url.replace(origin+'/extension/','');r.fulfill(body=(root/name).read_text(),content_type='text/html; charset=utf-8' if name.endswith('.html') else 'text/css' if name.endswith('.css') else 'application/javascript')
  ctx.route(origin+'/extension/**',route);page=ctx.new_page();page.goto(origin+'/extension/panel.html');page.evaluate('''async dates=>{const {createBatchStore}=await import('./batch-store.js'),{costStorage}=await import('./cost-panel.js'),{makeCostMap}=await import('./cost-model.js'),{metricFields}=await import('./batch-model.js');for(const date of dates){const metrics=n=>metricFields.map(label=>({label,current:String(n),state:'exact'}));await createBatchStore().saveDataset({shop:'auto-date',origin:location.origin,type:'account-day',mode:'全部',date,capturedAt:'2026-11-04T01:00:00Z',context:{primaryVerified:true,dates:[date]},summary:metrics(24),summarySources:metricFields.map(label=>({label,source:'overview-table-total'})),hourly:Array.from({length:24},(_,hour)=>({hour,metrics:metrics(1)})),expectedRows:1,products:[{productId:'900224894507',mode:'稳定成本推广',adId:'9146588221',metrics:metrics(24)}]});}for(const [id,effectiveFrom,price] of [['v1','2026-10-01','10'],['v2','2026-11-01','20']])await costStorage('versions','put',{id,effectiveFrom,importedAt:'2026-11-04',costs:makeCostMap([['商家编码-规格维度','单个SKU总成本'],['SKU',price]])});}''',dates)
- page.locator('#shopLabel').fill('auto-date');page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');assert page.locator('#costDateMode').input_value()=='auto';assert not page.locator('#costDate').is_visible();page.locator('#orderFile').set_input_files([first,second]);page.wait_for_function("document.querySelector('#costDatePreview').textContent.includes('7天、7笔')");page.locator('#costCalculate').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('7/7天完整')")
+ page.locator('#shopLabel').fill('auto-date');page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');assert page.locator('#costDateMode').input_value()=='auto';assert not page.locator('#costDate').is_visible();page.locator('#orderFile').set_input_files([first,second]);page.wait_for_function("n=>document.querySelector('#costDatePreview').textContent.includes('7天、'+n+'笔')",arg=len(rows));page.locator('#costCalculate').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('7/7天完整')")
  assert page.locator('#costDaySelect option').count()==7
  with page.expect_download() as event:page.locator('#costExport').click()
  out=tmp/'seven.json';event.value.save_as(out);data=json.loads(out.read_text());assert data['schemaVersion']=='order-cost-batch-1';assert [r['date'] for r in data['results']]==dates
  for entry in data['results']:
-  r=entry['report'];assert r['dateSource']=='order-id-prefix';assert r['summary']['includedOrders']==1;assert r['summary']['balanceFen']==(6250 if r['date']<'2026-11-01' else 5250)
+  r=entry['report'];assert r['dateSource']=='order-id-prefix';assert r['summary']['includedOrders']==(2 if rules else 1);assert r['summary']['balanceFen']==((10013 if r['date']<'2026-11-01' else 9013) if rules else (6250 if r['date']<'2026-11-01' else 5250))
+  if rules:
+   assert r['summary']['excludedOrders']==2 and r['summary']['pendingOrders']==0 and r['summary']['quantity']==1 and r['summary']['supplementOrders']==1 and r['summary']['supplementRevenueFen']==3900
+   assert r['details'][1]['sourceQuantity']==3900 and r['details'][1]['quantity']==0 and r['details'][1]['skuCostFen']==0
+   assert r['productAccounting']['reconciliation']['shopBalanceMatches']
  page.locator('#costDaySelect').select_option('6');assert page.locator('#costProducts tbody tr').count()==1
+ if rules:
+  audit=page.evaluate("""async dates=>{const {createAnalysisExport}=await import('./analysis-export.js'),{createBatchStore}=await import('./batch-store.js'),{costStorage}=await import('./cost-panel.js');return createAnalysisExport({shop:'auto-date',dates,warehouse:await createBatchStore().export('auto-date'),reports:await costStorage('reports','getAll'),costVersions:await costStorage('versions','getAll')}).coverage;}""",dates)
+  assert all(x['accountingValid'] for x in audit),audit
+  assert '补差价：1笔/' in page.locator('#costResult').text_content() and '39.00' in page.locator('#costResult').text_content()
  # Duplicates/unknown dates must stop before adding any report.
  def report_count():return page.evaluate("async()=> (await (await import('./cost-panel.js')).costStorage('reports','getAll')).length")
  count=report_count();dup=file('duplicate.csv',[rows[0]]);page.locator('#orderFile').set_input_files([first,dup]);page.locator('#costCalculate').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('重复')");assert report_count()==count
@@ -29,4 +43,4 @@ with sync_playwright() as p,tempfile.TemporaryDirectory(prefix='order-dates-') a
  last=file('last.csv',[rows[-1]]);page.locator('#orderFile').set_input_files(last);page.locator('#costCalculate').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('0/1天完整')")
  with page.expect_download() as event:page.locator('#costExport').click()
  out=tmp/'missing.json';event.value.save_as(out);r=json.loads(out.read_text());assert not r['complete'];assert r['summary']['adSpendFen'] is None and r['summary']['balanceFen'] is None
- print('PASS automatic order dates: 7 days / 2 CSV, cost-version boundary, daily fees, selectable compact day view, full batch export, duplicate and unknown no-write, missing same-day ad unknown; filenames ignored',flush=True);browser.close()
+ print('RULES-V23 ' if rules else '',end='');print('PASS automatic order dates: 7 days / 2 CSV, cost-version boundary, daily fees, selectable compact day view, full batch export, duplicate and unknown no-write, missing same-day ad unknown; filenames ignored',flush=True);browser.close()

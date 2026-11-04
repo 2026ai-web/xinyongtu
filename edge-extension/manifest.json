@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "新龙图 · 多多招财只读助手",
-  "version": "0.12.22",
+  "version": "0.12.23",
   "description": "在日常 Edge 侧栏中读取当前多多招财页面的可见指标，不修改推广、不读取 Cookie。",
   "permissions": [
     "sidePanel",
