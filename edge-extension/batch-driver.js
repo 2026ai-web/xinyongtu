@@ -46,7 +46,7 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
    }
    if(data.protocol!=='batch-dom-1'||data.action!==command.action){const event={protocol:'batch-dom-1',action:'receipt-invalid',receipt:{command:command.action,receivedProtocol:data.protocol||null,receivedAction:data.action||null}};lastDiagnostic=event;onDiagnostic(event);throw Error('采集回执协议或动作不符，已停止；不据此判定插件需要更新');}
    if(command.action==='date-step')dateReceiptMisses=0;
-   lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,summaryEvidence:data.diagnostics?.summaryEvidence,dateSelection:data.dateSelection||data.diagnostics?.dateSelection,calendar:data.diagnostics?.calendar,calendarCandidates:data.diagnostics?.calendarCandidates,kind:data.kind,totalRows:data.diagnostics?.totalRows,scroll:data.scroll,performance:data.performance,error:data.error,errorCode:data.errorCode,recoverable:data.recoverable};onDiagnostic(data);
+   lastDiagnostic={action:data.action,context:data.context,dateEvidence:data.diagnostics?.dateEvidence,missing:data.diagnostics?.missing,headerGroups:data.diagnostics?.headerGroups,summaryEvidence:data.diagnostics?.summaryEvidence,dateSelection:data.dateSelection||data.diagnostics?.dateSelection,calendar:data.diagnostics?.calendar,calendarCandidates:data.diagnostics?.calendarCandidates,kind:data.kind,totalRows:data.diagnostics?.totalRows,scroll:data.scroll,pagination:data.diagnostics?.pagination,performance:data.performance,error:data.error,errorCode:data.errorCode,recoverable:data.recoverable};onDiagnostic(data);
    if(data.performance?.durationMs>250)throw Error('页面解析耗时超过250毫秒，已暂停以避免持续卡顿；请导出诊断');if(data.error)throw Object.assign(Error(data.error),{code:data.errorCode,recoverable:data.recoverable});if(data.kind==='scrolled')counts.scrollMoves++;
    return data;
   }
@@ -107,14 +107,20 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
  }
  async function openUnit(row,date,overviewURL){
   if(row.unitURL){const u=checkedReportURL(row.unitURL,UNIT);u.searchParams.set('beginDate',date);u.searchParams.set('endDate',date);const ready=await navigate(u.href);return verifyUnit(row,date,ready);}
-  // The account-day was already saved and verified. Here the overview is
-  // used only to locate an exact product/mode entrance, never to read metrics
-  // for the requested day. Its date may reset on each visit.
-  await navigate(overviewURL);await read({action:'all-mode'});await stable();
+  // A no-href row must be found in the same dated list it was collected from.
+  // Returning to overview may restore another date and a different page.
+  await navigate(overviewURL);await read({action:'all-mode'});const overview=await stable();
+  const overviewAddress=checkedReportURL((await current()).url),hasDate=overviewAddress.searchParams.has('beginDate')||overviewAddress.searchParams.has('endDate');
+  if(!overview.context.dates.length||overview.context.dates.some(d=>d!==date)||hasDate&&(overviewAddress.searchParams.getAll('beginDate').length!==1||overviewAddress.searchParams.getAll('endDate').length!==1||overviewAddress.searchParams.get('beginDate')!==date||overviewAddress.searchParams.get('endDate')!==date))await selectDay(date);
+  await read({action:'first-page'});await stable(date);
+  const seen=new Set();let expected=null;
+  const locateDiagnostic=(data,page,reason,error)=>{const event={...(error?lastDiagnostic:{}),action:'locate-details',context:data?.context||lastDiagnostic?.context,locator:{date,productId:row.productId,mode:row.mode,page,seen:seen.size,expected,reason},...(error?{error}: {})};lastDiagnostic=event;onDiagnostic(event);};
   // Locate the observed row again, including pagination and virtual scrolling.
   for(let page=1;page<=20;page++){
    await read({action:'scroll-init'});for(let step=0;step<100;step++){
-    const d=await read();if(d.products.some(p=>p.productId===row.productId&&p.mode===row.mode)){
+    const d=await read();assertDay(d,date);if(d.expectedRows!==null){if(expected!==null&&expected!==d.expectedRows)throw Error('查找详情期间商品总条数变化，未继续翻页');expected=d.expectedRows;}for(const p of d.products)seen.add(rowKey(p));if(expected!==null&&seen.size>expected)throw Error('查找详情期间推广身份超过列表总数');
+    if(d.products.some(p=>p.productId===row.productId&&p.mode===row.mode)){
+     locateDiagnostic(d,page,'matched');
      const before=await api.tabs.query({windowId:(await current()).windowId}),source=controlled;const action=await read({action:'open-details',productId:row.productId,mode:row.mode});if(action.url){const ready=await navigate(action.url);return verifyUnit(row,date,ready);}
      expectedURL=null;
      for(let n=0;n<30;n++){await wait(300);const sourceTab=await api.tabs.get(source);if(new URL(sourceTab.url).pathname===UNIT){const ready=await stable();return verifyUnit(row,date,ready);}const fresh=(await api.tabs.query({windowId:sourceTab.windowId})).filter(t=>!before.some(b=>b.id===t.id)&&t.openerTabId===source&&(()=>{try{return checkedReportURL(t.url,UNIT);}catch{return false;}})());if(fresh.length===1){controlled=fresh[0].id;created.add(controlled);await api.tabs.update(controlled,{active:true});const ready=await stable();return verifyUnit(row,date,ready);}}
@@ -122,7 +128,9 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
     }
     if((await read({action:'scroll-next'})).kind==='end')break;await wait(150);
    }
-   await read({action:'page',page:page+1});await stable();
+   if(expected!==null&&seen.size===expected){const error='目标单日列表已完整检查，但未找到该商品及推广模式；未继续请求不存在的页码';locateDiagnostic(await read(),page,'complete-list-target-missing',error);throw Error(error);}
+   if(page===20)throw Error('查找商品详情分页超过20页');
+   try{await read({action:'page',page:page+1});}catch(e){locateDiagnostic(null,page,'next-page-unavailable',e.message);throw e;}await stable(date);
   }throw Error('未定位到商品查看详情入口');
  }
  async function verifyUnit(row,date,ready=null){

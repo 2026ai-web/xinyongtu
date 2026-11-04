@@ -75,3 +75,13 @@ test('only owned date query changes preserve route, promotion identity and other
  const next=before.replace('endDate=2026-11-02','endDate=2026-10-27');assert.equal(allowedDateURLChange(before,next,'2026-10-27'),true);assert.equal(allowedDateURLChange(before+'&filter=other',next.replace('filter=all','filter=other')+'&filter=all','2026-10-27'),false);
  for(const bad of [next.replace('9146588221','9146588222'),next.replace('scenesMode=3','scenesMode=1'),next.replace('filter=all','filter=other'),next.replace('/unit?','/overView?'),next.replace('yingxiao.pinduoduo.com','evil.test'),next.replace('beginDate=2026-10-27','beginDate=2026-10-28'),next+'&beginDate=2026-10-27',next+'#changed',next.replace('&endDate=2026-10-27','')])assert.equal(allowedDateURLChange(before,bad,'2026-10-27'),false,bad);
 });
+
+test('seven-day 85/91 checkpoint resumes only six missing units and preserves all saved records',async()=>{
+ const f=fixture(),scan=f.driver.scan,dates=requestedDates(7,Date.parse('2026-11-04T01:00:00Z'));let current='',fail=true,unitReads=0;
+ const missing=new Set([dates[2]+'|9146588200',dates[3]+'|9146588201',dates[4]+'|9146588201',dates[5]+'|9146588201',dates[6]+'|9146588200',dates[6]+'|9146588201']);
+ f.driver.scan=async(date,opts={})=>{if(!opts.account){unitReads++;if(fail&&missing.has(date+'|'+current))throw Error('fixture missing managed entrance');}const data=await scan(date,opts);if(opts.account){data.products=Array.from({length:13},(_,i)=>({...data.products[0],productId:String(900224894500+i),adId:String(9146588200+i)}));data.hourly=data.hourly.map(r=>({...r,metrics:metrics('13')}));data.summary=metrics('312');}return data;};
+ f.driver.openUnit=async row=>{current=row.adId;return {adId:row.adId,url:'https://yingxiao.pinduoduo.com/goods/report/promotion/unit?adId='+row.adId};};f.driver.navigate=async raw=>{current=new URL(raw).searchParams.get('adId');};
+ const args={shop:'fixture',days:7,store:f.store,driver:f.driver,overviewURL:'observed',now:Date.parse('2026-11-04T01:00:00Z')};const blocked=await runBatch(args);assert.equal(blocked.phase,'blocked');assert.equal(blocked.coverage.unitDays,85);assert.equal(blocked.failures.length,6);
+ const saved=new Map([...f.datasets].map(([key,data])=>[key,JSON.stringify(data)]));assert.equal(saved.size,92);fail=false;unitReads=0;f.driver.overview=async()=>{throw Error('must not recollect saved account');};
+ const complete=await runBatch(args);assert.equal(complete.id,blocked.id);assert.equal(complete.phase,'complete');assert.equal(complete.coverage.unitDays,91);assert.equal(complete.coverage.accountDays,7);assert.equal(unitReads,6);assert.equal(f.datasets.size,98);for(const [key,data] of saved)assert.equal(JSON.stringify(f.datasets.get(key)),data);
+});

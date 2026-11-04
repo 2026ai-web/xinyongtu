@@ -324,6 +324,7 @@ export function batchReportDocument(command={action:'read'}){
  if(command.action==='page'){
   if(!Number.isInteger(command.page)||command.page<1||command.page>100)throw Error('分页参数无效');
   const containers=[...document.querySelectorAll('nav,[role="navigation"],[class*="pagination"],[class*="Pagination"]')].filter(shown);const controls=[];for(const c of containers)for(const e of c.querySelectorAll('button,a,li,[role="button"]'))if(shown(e)&&norm(text(e))===String(command.page)&&!e.querySelector('button,a,[role="button"]')&&!e.disabled&&!/disabled/i.test(String(e.className)))if(!controls.includes(e))controls.push(e);
+  diagnostics.pagination={requested:command.page,expectedRows,visiblePages:[...new Set(containers.flatMap(c=>[...c.querySelectorAll('button,a,li,[role="button"]')]).filter(e=>shown(e)&&/^\d{1,3}$/.test(norm(text(e)))).map(e=>norm(text(e))))].slice(0,30),matches:controls.length};failureDiagnostic=diagnostics;
   if(controls.length!==1)throw Error('未找到唯一明确的报表页码 '+command.page);controls[0].click();return response({kind:'page-requested'});
  }
  throw Error('不支持的报表采集动作');
