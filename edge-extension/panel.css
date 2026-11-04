@@ -14,3 +14,4 @@ label{display:block;font-size:13px;color:#60738e;margin:10px 0}select{margin-lef
 .costCompactTable th,.costCompactTable td{padding:8px 3px;white-space:normal;overflow-wrap:anywhere}
 .costCompactTable th:nth-child(1){width:30%}.costCompactTable th:nth-child(2){width:22%}.costCompactTable th:nth-child(3){width:9%}.costCompactTable th:nth-child(4){width:25%}.costCompactTable th:nth-child(5){width:14%}
 .costCompactTable td:nth-child(2){font-weight:normal;white-space:normal}.costCompactTable td:not(:first-child){text-align:right}.costCompactHint{font-size:11px;line-height:1.5}.costLoss{color:#b3261e;font-weight:bold}.costGain{color:#146b46;font-weight:bold}.costExpandedDetails summary{padding:10px 2px}.costExpandedDetails p{font-size:12px}
+#costManualDate[hidden],#costDayLabel[hidden]{display:none}

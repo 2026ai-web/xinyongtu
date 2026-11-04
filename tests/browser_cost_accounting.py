@@ -19,10 +19,15 @@ with tempfile.TemporaryDirectory(prefix='cost-accounting-') as tmp, sync_playwri
  def route(r):
   name=r.request.url.split('?')[0].replace(origin+'/extension/','');r.fulfill(body=(root/name).read_text(),content_type='text/html; charset=utf-8' if name.endswith('.html') else 'text/css' if name.endswith('.css') else 'application/javascript')
  page.route(origin+'/extension/**',route);page.goto(origin+'/extension/panel.html');page.evaluate("async r=>{await (await import('./batch-store.js')).createBatchStore().saveDataset(r)}",account)
- page.locator('#shopLabel').fill(shop);page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costSettings').evaluate('(e)=>e.open=true');page.locator('#costEffective').fill('2026-10-31');page.locator('#costFile').set_input_files(cost);page.locator('#costImport').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('已仅保存在本机')");page.reload();page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costDate').fill('2026-10-31');page.locator('#orderFile').set_input_files(orders);page.locator('#costDateConfirmed').check();page.locator('#costCalculate').click();page.wait_for_function("!document.querySelector('#costExport').disabled")
+ page.locator('#shopLabel').fill(shop);page.locator('#shopLabel').dispatch_event('change');page.locator('#costTools').evaluate('(e)=>e.open=true');page.locator('#costSettings').evaluate('(e)=>e.open=true');page.locator('#costEffective').fill('2026-10-31');page.locator('#costFile').set_input_files(cost);page.locator('#costImport').click();page.wait_for_function("document.querySelector('#costStatus').textContent.includes('已仅保存在本机')");page.reload();page.locator('#costTools').evaluate('(e)=>e.open=true');
+ if not real:page.locator('#costDateMode').select_option('manual');page.locator('#costDate').fill('2026-10-31')
+ page.locator('#orderFile').set_input_files(orders)
+ if not real:page.locator('#costDateConfirmed').check()
+ page.locator('#costCalculate').click();page.wait_for_function("!document.querySelector('#costExport').disabled")
  with page.expect_download() as event:page.locator('#costExport').click()
  target=tmp/'result.json';event.value.save_as(target);report=json.loads(target.read_text());assert report['complete'],report['issues'];assert report['productAccounting']['complete'],report['productAccounting']['issues'];assert report['productAccounting']['reconciliation']['shopBalanceMatches'];assert page.locator('#costProducts tbody tr').count()==len(report['productAccounting']['products']);assert report['summary']['balanceFen']==expected,report['summary'];assert report['costVersion']['effectiveFrom']=='2026-10-31'
- if real:assert report['summary']['includedOrders']==462 and report['summary']['excludedOrders']==75 and report['summary']['quantity']==470
+ if real:assert report['dateSource']=='order-id-prefix';assert report['summary']['includedOrders']==462 and report['summary']['excludedOrders']==75 and report['summary']['quantity']==470
+ assert not page.locator('#costDayLabel').is_visible()
  # Compact sidebar shows only five columns; audit details are closed by default.
  assert page.locator('#costProducts thead th').all_text_contents()==['商品','营业额','单量','经营结余','投产比']
  assert not page.locator('#costShopDetails').evaluate('(e)=>e.open')
@@ -45,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='cost-accounting-') as tmp, sync_playwri
  page.evaluate("async()=>{const {costStorage}=await import('./cost-panel.js');for(const v of await costStorage('versions','getAll'))await costStorage('versions','delete',v.id)}")
  page.locator('#costRestore').set_input_files(backup);page.wait_for_function("document.querySelector('#costStatus').textContent.includes('已恢复')")
  assert page.evaluate("async()=> (await (await import('./cost-panel.js')).costStorage('versions','getAll')).length")==1
- page.locator('#costDate').fill('2026-11-01');page.locator('#costDate').dispatch_event('change');assert not page.locator('#costDateConfirmed').is_checked();assert page.locator('#costExport').is_disabled()
+ page.locator('#costDateMode').select_option('manual');page.locator('#costDate').fill('2026-11-01');page.locator('#costDate').dispatch_event('change');assert not page.locator('#costDateConfirmed').is_checked();assert page.locator('#costExport').is_disabled()
  # An absent account day cannot silently use a nearby date or zero spend.
  missing=page.evaluate("async shop=>await (await import('./cost-panel.js')).accountSpend(shop,'2026-10-30')",shop);assert missing['amount'] is None
  print('PASS real files' if real else 'PASS synthetic panel',json.dumps(report['summary'],ensure_ascii=False), 'cost persistence, XLSX cached values, full SKU cost × quantity, refunds excluded, aggregate 3.5%, exact-day account spend, local download',flush=True);browser.close()
