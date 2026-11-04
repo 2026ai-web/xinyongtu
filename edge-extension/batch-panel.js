@@ -1,3 +1,5 @@
+import {createAnalysisExport} from './analysis-export.js';
+import {costStorage} from './cost-panel.js';
 import {dataLock} from './local-data-lock.js';
 import {createGptExport} from './gpt-export.js';
 import {recordingGuide,requestedDates} from './batch-model.js';
@@ -34,5 +36,12 @@ export function installBatchPanel({beforeStart,setRunning}){
   const url=URL.createObjectURL(new Blob([JSON.stringify(payload)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-gpt-'+job.dates[0]+'-'+job.dates.at(-1)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   status('GPT精简导出已生成：最近任务 '+job.dates[0]+' 至 '+job.dates.at(-1)+'；'+(payload.task.complete?'完整':'未完成，请查看缺失与校验说明')+'。文件仅下载到本机，未发送给GPT。');
  }catch(e){status('GPT导出失败：'+e.message);}};
+ $('batchAnalysisExport').onclick=async()=>{try{
+  if(controller||$('costCalculate').disabled)throw Error('请先等待采集、核算或成本导入完成');
+  const shop=$('shopLabel').value.trim(),options=selection(),dates=requestedDates(options.days,Date.now(),'startDate' in options?{start:options.startDate,end:options.endDate}:null);if(!shop)throw Error('请填写店铺备注');
+  const warehouse=await store.export(shop),reports=await costStorage('reports','getAll'),costVersions=await costStorage('versions','getAll');const payload=createAnalysisExport({shop,dates,warehouse,reports,costVersions,extensionVersion:chrome.runtime?.getManifest?.().version||'unknown'});
+  const url=URL.createObjectURL(new Blob([JSON.stringify(payload)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='xinyongtu-analysis-'+dates[0]+'-'+dates.at(-1)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status('GPT经营分析资料已本机导出：'+dates[0]+' 至 '+dates.at(-1)+'；推广完整'+payload.coverage.filter(d=>d.promotionComplete).length+'/'+dates.length+'天，核算有效'+payload.coverage.filter(d=>d.accountingValid).length+'/'+dates.length+'天，快照匹配'+payload.coverage.filter(d=>d.snapshotsMatched).length+'/'+dates.length+'天；'+(payload.complete?'资料完整':'资料未完整，请先查看缺失/快照说明')+'。未发送给GPT。');
+ }catch(e){status('经营分析导出失败：'+e.message);}};
  $('batchClear').onclick=async()=>{if(controller){status('请先停止采集再清理仓库');return;}if(!confirm('请先导出备份。确定清空全部店铺的一键采集仓库？'))return;try{await store.clear();lastJob=null;status('一键采集仓库已清空');}catch(e){status(e.message);}};
 }
