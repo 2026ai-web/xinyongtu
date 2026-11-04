@@ -32,7 +32,7 @@ with sync_playwright() as p:
   assert ui.evaluate("async()=> (await (await import('./cost-panel.js')).costStorage('versions','getAll')).length")==0
   ui.locator('#fullBackupConfirm').click();ui.wait_for_function("document.querySelector('#fullBackupStatus').textContent.includes('恢复完成')")
   assert ui.evaluate("async()=> (await (await import('./cost-panel.js')).costStorage('versions','getAll'))[0].costs.map.SKU.values[0]")==1000
-  
+
   with ui.expect_navigation(wait_until='load'):ui.locator('#fullBackupReload').click()
   ui.wait_for_function("document.querySelector('#shopLabel').value==='backup-fixture'");assert ui.locator('#shopLabel').input_value()=='backup-fixture'
   ui.locator('#fullBackupTools details').evaluate('(e)=>e.open=true')
