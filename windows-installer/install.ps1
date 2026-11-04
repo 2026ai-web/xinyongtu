@@ -1,7 +1,7 @@
 ﻿param([switch]$Update,[switch]$NoUI,[string]$Destination)
 $ErrorActionPreference='Stop'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-$files=@('manifest.json','background.js','panel.html','panel.css','panel.js','reader.js','auto-collector.js','snapshot-quality.js','history.js','freshness.js','refresh-cycle.js','report-entry.js','report-navigation.js','batch-dom.js','batch-model.js','gpt-export.js','cost-model.js','product-accounting.js','cost-panel.js','xlsx-reader.js','batch-store.js','batch-driver.js','batch-runner.js','batch-panel.js','使用说明.txt')
+$files=@('manifest.json','background.js','panel.html','panel.css','panel.js','reader.js','auto-collector.js','snapshot-quality.js','history.js','freshness.js','refresh-cycle.js','report-entry.js','report-navigation.js','batch-dom.js','batch-model.js','gpt-export.js','cost-model.js','product-accounting.js','cost-panel.js','xlsx-reader.js','local-data-lock.js','backup-model.js','backup-runtime.js','backup-panel.js','batch-store.js','batch-driver.js','batch-runner.js','batch-panel.js','使用说明.txt')
 if(!$Destination){$Destination=Join-Path $env:LOCALAPPDATA 'Xinyongtu'}
 $root=[IO.Path]::GetFullPath($Destination)
 New-Item -ItemType Directory -Force -Path $root | Out-Null

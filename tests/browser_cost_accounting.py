@@ -33,6 +33,11 @@ with tempfile.TemporaryDirectory(prefix='cost-accounting-') as tmp, sync_playwri
   values=page.locator('#costProducts tbody tr').nth(i).locator('td').all_text_contents()
   expected_roas='无法确定' if product['adSpendFen'] is None else '—' if product['adSpendFen']==0 else f"{product['revenueFen']/product['adSpendFen']:.2f}"
   assert values[4]==expected_roas,(values,expected_roas)
+ # Full backup round-trip in an independent context preserves all accounting values.
+ full=page.evaluate("async()=>await (await import('./backup-runtime.js')).createFullBackup('test')")
+ restored_context=browser.new_context();restored_context.route(origin+'/extension/**',route);restored=restored_context.new_page();restored.add_init_script("window.chrome={runtime:{getManifest:()=>({version:'test'})},tabs:{onActivated:{addListener:()=>{}},onUpdated:{addListener:()=>{}}}}");restored.goto(origin+'/extension/panel.html')
+ after=restored.evaluate("async file=>{const b=await import('./backup-runtime.js');await b.restoreFullBackup(file);return b.createFullBackup('test');}",full)
+ assert full['payload']==after['payload'];assert after['payload']['costs']['reports'][0][1]['summary']==report['summary'];restored_context.close()
  # Cost backup contains local versions and can be restored after local cost DB removal.
  page.locator('#costSettings').evaluate('(e)=>e.open=true')
  with page.expect_download() as event:page.locator('#costBackup').click()

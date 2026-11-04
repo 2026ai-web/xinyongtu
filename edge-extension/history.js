@@ -1,3 +1,4 @@
+import {dataLock} from './local-data-lock.js';
 // Extension-origin IndexedDB only; no requests, cookies or merchant login state.
 export const HISTORY_LIMIT=200, HISTORY_DAYS=30, HISTORY_BYTES=5*1024*1024;
 export function historyEntry(data,assessment,shopLabel){
@@ -25,12 +26,12 @@ export function historyStats(records){
 export function createHistoryStore(){
  let opened;
  const db=()=>opened??=new Promise((resolve,reject)=>{const request=indexedDB.open('xinyongtu-local-history',1);request.onupgradeneeded=()=>request.result.createObjectStore('history');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
- async function transact(change){
+ async function transact(change){return dataLock(async()=>{
   const database=await db();return new Promise((resolve,reject)=>{
    const tx=database.transaction('history',change?'readwrite':'readonly'),store=tx.objectStore('history'),request=store.get('records');let value;
    request.onsuccess=()=>{try{value=pruneHistory(request.result||[]);if(change){value=change(value);store.put(value,'records');}}catch(e){reject(e);tx.abort();}};
    tx.oncomplete=()=>resolve(value);tx.onerror=()=>reject(tx.error||Error('本地历史存储失败'));tx.onabort=()=>reject(tx.error||Error('本地历史事务已取消'));
-  });
+  });});
  }
  return {list:()=>transact(),append:entry=>transact(records=>pruneHistory([entry,...records])),clear:()=>transact(()=>[])};
 }

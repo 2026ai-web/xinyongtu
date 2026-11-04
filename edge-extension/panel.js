@@ -1,3 +1,5 @@
+import {installBackupPanel} from './backup-panel.js';
+await installBackupPanel();
 import {installCostPanel} from './cost-panel.js';
 import {installBatchPanel} from './batch-panel.js';
 let batchRunning=false;

@@ -1,8 +1,9 @@
+import {dataLock} from './local-data-lock.js';
 import {datasetKey} from './batch-model.js';
 export function createBatchStore(){
  let opened;const open=()=>opened??=new Promise((resolve,reject)=>{const r=indexedDB.open('xinyongtu-report-warehouse',1);r.onupgradeneeded=()=>{for(const n of ['jobs','datasets','meta'])r.result.createObjectStore(n);};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
  const request=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
- async function transaction(names,mode,work){const db=await open();return new Promise((resolve,reject)=>{const tx=db.transaction(names,mode);let result;tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('本地仓库事务终止'));Promise.resolve(work(tx)).then(v=>{result=v;}).catch(e=>{reject(e);tx.abort();});});}
+ async function transaction(names,mode,work){return dataLock(async()=>{const db=await open();return new Promise((resolve,reject)=>{const tx=db.transaction(names,mode);let result;tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('本地仓库事务终止'));Promise.resolve(work(tx)).then(v=>{result=v;}).catch(e=>{reject(e);tx.abort();});});});}
  return {
   claim:owner=>transaction(['meta'],'readwrite',async t=>{const s=t.objectStore('meta'),lock=await request(s.get('lock'));if(lock&&lock.owner!==owner&&lock.expiresAt>Date.now())throw Error('另一窗口正在采集，请先停止该任务');s.put({owner,expiresAt:Date.now()+60000},'lock');}),
   release:owner=>transaction(['meta'],'readwrite',async t=>{const s=t.objectStore('meta'),lock=await request(s.get('lock'));if(lock?.owner===owner)s.delete('lock');}),

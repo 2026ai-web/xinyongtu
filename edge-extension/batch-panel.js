@@ -1,3 +1,4 @@
+import {dataLock} from './local-data-lock.js';
 import {createGptExport} from './gpt-export.js';
 import {recordingGuide,requestedDates} from './batch-model.js';
 import {createBatchStore} from './batch-store.js';
@@ -9,7 +10,7 @@ export function installBatchPanel({beforeStart,setRunning}){
  const yesterday=requestedDates(1)[0];for(const id of ['batchStartDate','batchEndDate']){$(id).max=yesterday;$(id).value=yesterday;}
  try{const saved=JSON.parse(localStorage.getItem('batch-preferences')||'null');if(saved){$('shopLabel').value=String(saved.shop||'').slice(0,80);const mode=String(saved.mode??saved.days);if(['1','7','30','single','custom'].includes(mode))$('batchDays').value=mode;for(const [id,key] of [['batchStartDate','startDate'],['batchEndDate','endDate']])if(saved[key])$(id).value=saved[key];}}catch{}
  const selection=()=>{const mode=$('batchDays').value;return mode==='single'||mode==='custom'?{days:1,startDate:$('batchStartDate').value,endDate:mode==='single'?$('batchStartDate').value:$('batchEndDate').value}:{days:Number(mode)};};
- const remember=()=>{try{localStorage.setItem('batch-preferences',JSON.stringify({shop:$('shopLabel').value.trim(),mode:$('batchDays').value,startDate:$('batchStartDate').value,endDate:$('batchEndDate').value}));}catch{}};
+ const remember=()=>{try{const value=JSON.stringify({shop:$('shopLabel').value.trim(),mode:$('batchDays').value,startDate:$('batchStartDate').value,endDate:$('batchEndDate').value});dataLock(()=>localStorage.setItem('batch-preferences',value)).catch(e=>{$('batchStatus').textContent=e.message;});}catch{}};
  const preview=()=>{const mode=$('batchDays').value;$('batchDateFields').hidden=!['single','custom'].includes(mode);$('batchEndLabel').hidden=mode!=='custom';try{const s=selection(),dates=requestedDates(s.days,Date.now(),'startDate' in s?{start:s.startDate,end:s.endDate}:null);$('batchDatePreview').textContent=dates[0]+' 至 '+dates.at(-1)+'，共 '+dates.length+' 天；每天独立采集，不保存区间汇总。';}catch(e){$('batchDatePreview').textContent=e.message;}};
  for(const id of ['shopLabel','batchDays','batchStartDate','batchEndDate'])$(id).addEventListener('change',()=>{remember();preview();});preview();
  const status=message=>{$('batchStatus').textContent=message;};
