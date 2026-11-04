@@ -110,7 +110,20 @@ export function batchReportDocument(command={action:'read'}){
   const exact=dates.length>0&&dates[0]===start&&dates.at(-1)===end;
   diagnostics.dateSelection={requested:{start,end},phase:state.phase,steps:state.steps,openAttempts:state.openAttempts,rendered:dates,panelCount:panels.length,activeControl:primary.inputs.indexOf(document.activeElement),controls:primary.inputs.map(e=>({type:e.type,readOnly:e.readOnly,disabled:e.disabled,wrapperTag:e.parentElement?.tagName,wrapperClass:String(e.parentElement?.className||'').slice(0,100)}))};
   failureDiagnostic=diagnostics;
-  const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;return response({dateSelection:diagnostics.dateSelection,...extra});};
+  const result=extra=>{diagnostics.dateSelection.phase=state.phase;diagnostics.dateSelection.openAttempts=state.openAttempts;diagnostics.dateSelection.calendarReset={attempted:Boolean(state.calendarResetTried),reason:state.resetReason||null};return response({dateSelection:diagnostics.dateSelection,...extra});};
+  const resetCalendar=reason=>{
+   // Close through ordinary outside/blur events, never a random date or a
+   // report shortcut. A closed popup is verified before trying the input again.
+   state.calendarResetTried=true;state.resetReason=reason;state.phase='reset-close';state.resetAt=Date.now();
+   act(()=>{for(const input of primary.inputs){input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));input.dispatchEvent(new KeyboardEvent('keyup',{key:'Escape',code:'Escape',bubbles:true}));input.blur();}document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));document.body.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));document.body.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));document.body.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));document.body.click();});
+   return result({kind:'calendar-close-requested',reason});
+  };
+  diagnostics.dateSelection.calendarReset={attempted:Boolean(state.calendarResetTried),reason:state.resetReason||null};
+  if(state.phase==='reset-close'){
+   if(!popupCandidates.length){state.phase='start';state.opened=false;state.openedAt=0;state.renderKey=null;return result({kind:'calendar-closed',reason:state.resetReason});}
+   if(Date.now()-state.resetAt<1200)return result({kind:'calendar-closing'});
+   return result({kind:'calendar-close-failed',errorCode:'calendar-close-failed',recoverable:false,error:'日历未确认关闭，未继续重复打开；请保留日期诊断'});
+  }
   if(exact&&!popupCandidates.length){state.phase='done';return result({kind:'date-selected'});}
   // Use a uniquely scoped report shortcut for yesterday before opening a range
   // picker. Never infer completion from the click: verify actual primary dates.
@@ -161,6 +174,7 @@ export function batchReportDocument(command={action:'read'}){
    if(nodes.length===1){act(()=>nodes[0].click());state.phase=state.phase==='extend-end'?'extend-confirm':state.phase==='start'&&range?'end':'confirm';state.openAttempts=0;return result({kind:'date-cell-selected',selected:wanted});}
    if(nodes.length>1)throw Error('目标日期单元格不唯一，未猜测');
    if(visible.length&&visible.every(disabled)){
+    if(state.phase==='start'&&!state.calendarResetTried)return resetCalendar('target-disabled');
     // Some range controls constrain start <= current end. Move only the end
     // forward first, verify that temporary range, then select the target day.
     if(state.phase==='start'&&start===end&&primary.inputs.length===2&&dates.at(-1)<start&&!state.extendedEnd){state.extendedEnd=true;state.phase='extend-end';state.openAttempts=0;return openInput(1,'calendar-end-first-requested');}
@@ -176,6 +190,7 @@ export function batchReportDocument(command={action:'read'}){
   // React range pickers commonly open on mousedown/focus, not input.click().
   if(state.opened&&Date.now()-(state.openedAt||0)<1200)return result({kind:'calendar-opening'});
   if(popupCandidates.length&&!panels.length)return result({kind:'unsupported-calendar',errorCode:'calendar-format-unsupported',recoverable:false,error:'检测到日历弹层，但日期格式暂不支持；已停止重复开关，请保留日期诊断'});
+  if(state.phase==='start'&&state.opened&&!state.calendarResetTried)return resetCalendar('calendar-not-open');
   if(state.openAttempts>=3)return result({kind:'calendar-not-open',errorCode:'calendar-not-open',recoverable:state.phase==='start',error:'主日期控件未打开日历；已等待并尝试主输入框及外层范围控件，请保留日期诊断'});
   const index=['end','extend-end'].includes(state.phase)&&primary.inputs.length===2?1:0;return openInput(index);
  }
