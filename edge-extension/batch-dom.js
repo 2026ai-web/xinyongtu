@@ -77,7 +77,9 @@ export function batchReportDocument(command={action:'read'}){
  // and exact rendered+URL agreement may recover its primary role.
  if(!dateEvidence.some(e=>e.role==='primary')){
   const unknown=dateEvidence.filter(e=>e.role==='unknown'),address=new URL(location.href);
-  const component=e=>{for(let p=e.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++)if(String(p.className).split(/\s+/).some(c=>/^(?:Report)?DatePicker_(?:wrap|wrapper|container|root)(?:__|$)/.test(c)))return p;return null;};
+  const component=e=>{for(let p=e.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++){const classes=String(p.className).split(/\s+/);if(classes.some(c=>/^(?:Report)?DatePicker_(?:wrap|wrapper|container|root)(?:__|$)/.test(c)))return p;
+   if(route===overview&&classes.some(c=>/^DateAreaV2_wrapper__/.test(c))&&p.querySelector('.anq-date-range-picker'))for(let header=p.parentElement,depth=0;header&&header!==document.body&&depth<4;header=header.parentElement,depth++)if(String(header.className).split(/\s+/).some(c=>/^OverviewHeaderV2_wrap__/.test(c)))return p;
+  }return null;};
   const components=[...new Set(unknown.map(e=>component(e.input)).filter(Boolean))];
   if(unknown.length&&components.length===1&&unknown.every(e=>components[0].contains(e.input))&&unknown.length<=2&&dateEvidence.some(e=>e.role==='comparison')&&!dateEvidence.some(e=>e.role==='comparison'&&components[0].contains(e.input))){
    const rendered=[...new Set(unknown.flatMap(e=>e.values))].sort(),begin=address.searchParams.get('beginDate'),end=address.searchParams.get('endDate');

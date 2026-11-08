@@ -112,3 +112,5 @@ promotion.values保持页面原字符串/金额元，accounting.summary和produc
 status=voided保留原内容、voidedAt及voidReason，不删除、不用于效果分析；同ID作废后恢复旧活跃备份视为冲突并停止整次恢复，不偷偷覆盖。列表仅显示当前店铺最近20条，但最多5000条全部本机保存。分析adjustments按当前店铺全量带出，并标记相对所选日期before-period/within-period/after-period（不连续日期间隙between-selected-dates）。后发生记录不能解释早期盈亏，缺记录不等于无操作，不自动判定因果。
 
 0.12.27主日期补充：紧凑两快捷项仅接受精确“今日昨日/今天昨天”局部内容；命名报表日期组件恢复还需唯一组、无对比输入混入、至少独立对比证据及初次DOM/URL起止日期对应。不能将未知普通输入或URL独立视为主日期。已确认选日状态只对同输入引用/路由和推广身份复用，避免地址更新稍迟导致身份丢失；最终日期和受控URL校验仍保持。dateControlStructure仅在有未知角色时记录有限结构用于诊断，不推断金额或主日期。
+
+0.12.28主日期组件白名单增加实际报告30组合：仅overview、DateAreaV2_wrapper下存在anq-date-range-picker且4层内父级为OverviewHeaderV2_wrap。识别仍进入27的唯一性、独立对比、初次DOM/URL起止对应等检查，不独立绕过校验；哈希后缀不硬编码。
