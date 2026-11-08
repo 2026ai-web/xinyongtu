@@ -6,8 +6,8 @@
 
 - 原仓库：https://github.com/2026ai-web/xinyongtu
 - 开发分支：recovery/v0.12.1；原恢复起点release-artifacts/v0.12.1 / 9f0181c。
-- 已实机验收基础：1aab041 / 0.12.15商品核算；0.12.16五列界面已交付。当前交付0.12.29吸顶主日期副本兼容，见恢复分支HEAD，待用户实机验收下载入口。
-- 制品：仓库根目录xinyongtu-edge-sidebar-0.12.29.zip及.zip.sha256；远程保存，无须依赖旧云目录。
+- 已实机验收基础：1aab041 / 0.12.15商品核算；0.12.16五列界面已交付。当前交付0.12.30详情UnitHeader日期兼容与重复等待阻断，见恢复分支HEAD，待用户实机验收下载入口。
+- 制品：仓库根目录xinyongtu-edge-sidebar-0.12.30.zip及.zip.sha256；远程保存，无须依赖旧云目录。
 - 无需发布Release或部署，不强推，不合并main，不改release-channel。桌面更新通道未更新，继续用下载整包install.cmd、Edge重新加载。
 
 ## 已完成及实机证据

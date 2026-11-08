@@ -357,3 +357,12 @@ start阶段目标格禁用或打开等待后无弹层时，最多一次Escape/�
 29只在已观察的唯一原V2组件+唯一已知吸顶结构、同输入数及值完全一致时，将副本标primary-mirror，主角色/操作只保留原组件。副本首次不同值、多副本、无原组件或额外不明输入仍阻断；不泛化丢弃第二个日期输入。自有选日且原引用/路由身份已证明时，副本暂时不同标pending，primaryVerified=false且date-step只等待，保留reset状态，最终同步后才能继续；一直不一致在原120步控制器上限失败，无数据写入。dateMirrorEvidence导出状态和主副值，不含时间戳以免稳定性抖动。
 
 按报告双栏重建旧28确定复现失败，新代码初始副本、滚动中挂载、每次读取重建副本三个场景完整采集；范围选日副本延迟同步、持续分歧拒绝及负例见TESTING-v0.12.29.md。仅离线fixture，不把模拟成功当用户实机完成。用户需新29继续原7号任务，旧记录/成本/核算/人工日志不清除，不卸载，不改main/release-channel，不发布或部署，不操作真实店铺。
+
+
+## 2026-11-08 v0.12.30：报告33详情日期与重复等待
+
+基线recovery/v0.12.1 / ca64545。报告33实际29，总览11月7日已保存，单链接0/13；12分多钟主要耗在每条详情75次未知日期重试。详情实际六层为anq-picker-input / anq-date-range-picker / span / DateAreaV2_wrapper / UnitHeader_itemRight / UnitHeader_wrap，对比为独立CompareDatePicker。此前只覆盖总览，漏测详情新组件。
+
+30按路由精确匹配OverviewHeaderV2或UnitHeader，保留独立对比、唯一组件、初始地址日期一致及最终校验。已加载且无镜像同步中的相同unknown结构连续5次即primary-date-unsupported，阻断整个任务并保存检查点；真实loading/变化结构仍按原逻辑等待。正常3次稳定确认保留，界面不再显示1/75。没有关闭日期保护换取速度。
+
+测试与恢复步骤见TESTING-v0.12.30.md；仅离线fixture，真实后台待用户验收。升级备份→install.cmd→原扩展重新加载确认30→刷新后台→同店铺同日期继续，账户数据不重采。旧历史/成本/核算/人工日志保留。不发布部署、不改main/release-channel、不操作真实店铺。

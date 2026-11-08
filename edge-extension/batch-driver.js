@@ -52,13 +52,19 @@ export function createBatchDriver({tabId,signal,onDiagnostic=()=>{},api=chrome})
   }
  }
  async function stable(date){
-  counts.stableChecks++;let last=null,steady=0,lastError=null;
+  counts.stableChecks++;let last=null,steady=0,lastError=null,unsupportedSignature=null,unsupportedCount=0;
   for(let n=0;n<75;n++){
    await wait(400);const tab=await current();
    const waiting={protocol:'batch-dom-1',action:'wait-ready',tab:{status:tab.status,route:new URL(tab.url).pathname},attempt:n+1};
    lastDiagnostic=waiting;onDiagnostic(waiting);
-   let d;try{d=await read();if(d.context.loading)throw Error('报表仍在加载');if(!d.context.primaryVerified||!d.context.dates.length)throw Error('主统计日期尚未就绪');if(date)assertDay(d,date);}
-   catch(e){lastError=e;last=null;steady=0;if(n===74)throw e;continue;}
+   let d;try{d=await read();if(d.context.loading){unsupportedSignature=null;unsupportedCount=0;throw Error('报表仍在加载');}
+    if(!d.context.primaryVerified||!d.context.dates.length){
+     const unknown=d.diagnostics?.dateControlStructure?.some(e=>e.role==='unknown'&&e.values?.length);
+     if(tab.status==='complete'&&unknown&&!d.diagnostics?.dateMirrorEvidence){const signature=JSON.stringify([d.context,d.diagnostics.dateEvidence,d.diagnostics.dateControlStructure]);unsupportedCount=signature===unsupportedSignature?unsupportedCount+1:1;unsupportedSignature=signature;if(unsupportedCount>=5){const message='当前报表日期组件无法识别，已停止重复等待；进度已保留，请导出诊断';lastDiagnostic={...lastDiagnostic,error:message,errorCode:'primary-date-unsupported',recoverable:false};onDiagnostic({...lastDiagnostic,protocol:'batch-dom-1',action:'date-control-unsupported'});throw Object.assign(Error(message),{code:'primary-date-unsupported'});}}
+     else {unsupportedSignature=null;unsupportedCount=0;}throw Error('主统计日期尚未就绪');
+    }
+    unsupportedSignature=null;unsupportedCount=0;if(date)assertDay(d,date);}
+   catch(e){lastError=e;last=null;steady=0;if(e.code==='primary-date-unsupported'||n===74)throw e;continue;}
    const signature=fingerprint(d);
    if(last===signature){steady++;if(steady>=2){settledSnapshots.set(d,{epoch,url:expectedURL,at:performance.now()});return d;}}else steady=0;last=signature;
   }

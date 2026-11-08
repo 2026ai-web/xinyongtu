@@ -75,12 +75,12 @@ export function batchReportDocument(command={action:'read'}){
  const classToken=(e,re)=>String(e.className||'').split(/\s+/).some(c=>re.test(c));
  const dateArea=input=>{for(let p=input.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++)if(classToken(p,/^DateAreaV2_wrapper__/)&&p.querySelector('.anq-date-range-picker'))return p;return null;};
  const stickyArea=p=>{let range=false,content=false;for(let q=p?.parentElement,n=0;q&&q!==document.body&&n<5;q=q.parentElement,n++){range||=classToken(q,/^StickyTabRangePicker_rangeWrap__/);content||=classToken(q,/^StickyTabRangePicker_content__/);}return range&&content;};
- const originalArea=p=>{if(!p||route!==overview||stickyArea(p))return false;for(let q=p.parentElement,n=0;q&&q!==document.body&&n<4;q=q.parentElement,n++)if(classToken(q,/^OverviewHeaderV2_wrap__/))return true;return false;};
+ const originalArea=p=>{if(!p||stickyArea(p))return false;const header=route===overview?/^OverviewHeaderV2_wrap__/:/^UnitHeader_wrap__/;for(let q=p.parentElement,n=0;q&&q!==document.body&&n<4;q=q.parentElement,n++)if(classToken(q,header))return true;return false;};
  // A visible sticky copy is not another logical date range. Only pair the
  // observed V2 structures with matching controls; never drop a generic input.
  let dateMirrorEvidence=null,dateMirrorsReady=true,dateMirrorPending=false;
  const areas=[...new Set(dateEvidence.map(e=>dateArea(e.input)).filter(Boolean))],originals=areas.filter(originalArea),mirrors=areas.filter(stickyArea);
- if(route===overview&&mirrors.length){
+ if(mirrors.length){
   const mainEntries=originals.length===1?dateEvidence.filter(e=>originals[0].contains(e.input)):[],copyEntries=mirrors.length===1?dateEvidence.filter(e=>mirrors[0].contains(e.input)):[];
   const shape=originals.length===1&&mirrors.length===1&&mainEntries.length>0&&mainEntries.length<=2&&mainEntries.length===copyEntries.length&&![...mainEntries,...copyEntries].some(e=>['comparison','auxiliary'].includes(e.role));
   const equal=shape&&JSON.stringify(mainEntries.map(e=>e.values))===JSON.stringify(copyEntries.map(e=>e.values));

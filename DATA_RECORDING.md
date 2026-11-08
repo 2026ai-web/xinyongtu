@@ -116,3 +116,12 @@ status=voided保留原内容、voidedAt及voidReason，不删除、不用于效�
 0.12.28主日期组件白名单增加实际报告30组合：仅overview、DateAreaV2_wrapper下存在anq-date-range-picker且4层内父级为OverviewHeaderV2_wrap。识别仍进入27的唯一性、独立对比、初次DOM/URL起止对应等检查，不独立绕过校验；哈希后缀不硬编码。
 
 0.12.29吸顶副本：只处理overview上唯一原OverviewHeaderV2/DateAreaV2及StickyTabRangePicker_rangeWrap/content内唯一同结构DateAreaV2。值/输入数完全一致才标primary-mirror，不加入primary.inputs。初态分歧或不唯一则primaryVerified=false；仅已证明的自有选日过程可标primary-mirror-pending等待同步，依旧不可保存。dateMirrorEvidence为consistent/awaiting-sync/conflict，列主副日期和组数。原控制器120步上限保持，pending不丢首次reset。
+
+
+## 2026-11-08 v0.12.30：报告33详情日期与重复等待
+
+基线recovery/v0.12.1 / ca64545。报告33实际29，总览11月7日已保存，单链接0/13；12分多钟主要耗在每条详情75次未知日期重试。详情实际六层为anq-picker-input / anq-date-range-picker / span / DateAreaV2_wrapper / UnitHeader_itemRight / UnitHeader_wrap，对比为独立CompareDatePicker。此前只覆盖总览，漏测详情新组件。
+
+30按路由精确匹配OverviewHeaderV2或UnitHeader，保留独立对比、唯一组件、初始地址日期一致及最终校验。已加载且无镜像同步中的相同unknown结构连续5次即primary-date-unsupported，阻断整个任务并保存检查点；真实loading/变化结构仍按原逻辑等待。正常3次稳定确认保留，界面不再显示1/75。没有关闭日期保护换取速度。
+
+测试与恢复步骤见TESTING-v0.12.30.md；仅离线fixture，真实后台待用户验收。升级备份→install.cmd→原扩展重新加载确认30→刷新后台→同店铺同日期继续，账户数据不重采。旧历史/成本/核算/人工日志保留。不发布部署、不改main/release-channel、不操作真实店铺。
