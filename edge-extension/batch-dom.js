@@ -61,16 +61,31 @@ export function batchReportDocument(command={action:'read'}){
  // statistics date, and a URL date alone cannot verify rendered data.
  const dateEvidence=datedInputs.map(input=>{
   const hint=[input.getAttribute('aria-label'),input.name,input.placeholder].filter(Boolean).join(' ');
-  let role=/对比|compare|comparison/i.test(hint)?'comparison':/豁免|exempt/i.test(hint)?'auxiliary':/统计日期|推广日期|statistic|promotion.?date/i.test(hint)?'primary':'unknown';
+  let role=/对比|compare|comparison/i.test(hint)?'comparison':/豁免|exempt|订单日期|创建时间|筛选日期|filter.?date|invoice/i.test(hint)?'auxiliary':/统计日期|推广日期|statistic|promotion.?date/i.test(hint)?'primary':'unknown';
   let source=role==='unknown'?'unclassified':'control-label';
   if(role==='unknown')for(let p=input.parentElement,n=0;p&&p!==document.body&&n<9;n++,p=p.parentElement){
-   const local=norm(text(p)),inputs=datedInputs.filter(e=>p.contains(e));if(local.length>1500)break;
+   const inputs=datedInputs.filter(e=>p.contains(e));if(inputs.length<=2&&/CompareDatePicker|comparison.?date/i.test(String(p.className))){role='comparison';source='comparison-component';break;}
+   const local=norm(text(p));if(local.length>1500)break;
    if(inputs.length<=2&&/对比日期|对比时间/.test(local)&&!['今日','昨日','近7','近30','近90'].some(x=>local.includes(x))){role='comparison';source='comparison-group';break;}
    if(inputs.length<=2&&/豁免/.test(local)){role='auxiliary';source='auxiliary-group';break;}
-   if(inputs.length<=2&&(['今日','昨日','近7','近30','近90'].filter(x=>local.includes(x)).length>=3||/统计日期|推广日期/.test(local))){role='primary';source='statistics-group';break;}
+   if(inputs.length<=2&&(['今日','昨日','近7','近30','近90'].filter(x=>local.includes(x)).length>=3||['今日昨日','今天昨天'].includes(local)||/统计日期|推广日期/.test(local))){role='primary';source='statistics-group';break;}
   }
   return {input,role,source,values:dateValues([input])};
  });
+ // A compact report DatePicker can lose the surrounding shortcut text.
+ // Only a unique named component, an independently classified comparison,
+ // and exact rendered+URL agreement may recover its primary role.
+ if(!dateEvidence.some(e=>e.role==='primary')){
+  const unknown=dateEvidence.filter(e=>e.role==='unknown'),address=new URL(location.href);
+  const component=e=>{for(let p=e.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++)if(String(p.className).split(/\s+/).some(c=>/^(?:Report)?DatePicker_(?:wrap|wrapper|container|root)(?:__|$)/.test(c)))return p;return null;};
+  const components=[...new Set(unknown.map(e=>component(e.input)).filter(Boolean))];
+  if(unknown.length&&components.length===1&&unknown.every(e=>components[0].contains(e.input))&&unknown.length<=2&&dateEvidence.some(e=>e.role==='comparison')&&!dateEvidence.some(e=>e.role==='comparison'&&components[0].contains(e.input))){
+   const rendered=[...new Set(unknown.flatMap(e=>e.values))].sort(),begin=address.searchParams.get('beginDate'),end=address.searchParams.get('endDate');
+   const prior=globalThis.__xinyongtuBatchDate,verified=prior?.key?.startsWith(route+'|'+(address.searchParams.get('adId')||'account')+'|')&&prior.inputs?.length===unknown.length&&unknown.every(e=>prior.inputs.includes(e.input));
+   if(rendered.length&&rendered.length<=2&&rendered.every(day)&&(verified||address.searchParams.getAll('beginDate').length===1&&address.searchParams.getAll('endDate').length===1&&begin===rendered[0]&&end===rendered.at(-1)))for(const e of unknown){e.role='primary';e.source=verified?'verified-report-date-component':'unique-report-date-component-and-url';}
+  }
+ }
+ const dateControlStructure=dateEvidence.some(e=>e.role==='unknown')?dateEvidence.slice(0,4).map(({input,role,values})=>({role,values,type:input.type,readOnly:input.readOnly,ariaLabel:(input.getAttribute('aria-label')||'').slice(0,80),name:(input.name||'').slice(0,80),ancestors:(()=>{const out=[];for(let p=input.parentElement;p&&p!==document.body&&out.length<6;p=p.parentElement)out.push({tag:p.tagName,className:String(p.className||'').slice(0,120),role:p.getAttribute('role'),dateInputCount:datedInputs.filter(e=>p.contains(e)).length,textLength:Math.min(2001,(p.textContent||'').length)});return out;})()})):[];
  const mainControls=dateEvidence.filter(e=>e.role==='primary');
  const primary=mainControls.length?{inputs:mainControls.map(e=>e.input),values:mainControls.flatMap(e=>e.values)}:null;
  const dates=primary?[...new Set(primary.values)].sort():[];
@@ -79,7 +94,7 @@ export function batchReportDocument(command={action:'read'}){
  if(command.action==='date-step'){
   // Date actions inspect only date controls/calendars. Data rows are read and
   // validated separately once the requested day has settled.
-  const diagnostics={calendar:[],dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values}))};
+  const diagnostics={calendar:[],dateControlStructure,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values}))};failureDiagnostic=diagnostics;
   const context={route,origin:location.origin,dates,primaryVerified,adId,productId:route===unit&&ids.length===1?ids[0]:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
   let parseMs=null,actionDurationMs=0;
   const act=fn=>{parseMs=performance.now()-started;const at=performance.now();fn();actionDurationMs+=performance.now()-at;};
@@ -225,7 +240,7 @@ export function batchReportDocument(command={action:'read'}){
  for(const e of document.querySelectorAll('thead tr,[role="row"],[class*="table-header"],[class*="TableHeader"]'))if(shown(e)&&!(/商品\s*ID/.test(text(e)))){
   const cells=[...e.querySelectorAll('th,[role="columnheader"]')].filter(c=>!/(?:^|\s)(?:anq|ant|rc)-table-cell-scrollbar(?:\s|$)/.test(String(c.className)));if(cells.length<2)continue;headerGroups.push({e,cells,labels:cells.map(c=>canonicalLabel(norm(text(c)).replace(/[▲▼↑↓↕]/g,'')))});
  }
- const diagnostics={route,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
+ const diagnostics={route,dateControlStructure,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
  const computeFieldsFor=row=>{
   const table=row.closest('table,[role="table"],[role="grid"]'),own=table&&headerGroups.find(g=>table.contains(g.e));
   const cells=[...row.children].filter(c=>['TD','TH'].includes(c.tagName)||['cell','gridcell'].includes(c.getAttribute('role')));
