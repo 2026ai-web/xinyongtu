@@ -72,13 +72,29 @@ export function batchReportDocument(command={action:'read'}){
   }
   return {input,role,source,values:dateValues([input])};
  });
- // A compact report DatePicker can lose the surrounding shortcut text.
- // Only a unique named component, an independently classified comparison,
- // and exact rendered+URL agreement may recover its primary role.
+ const classToken=(e,re)=>String(e.className||'').split(/\s+/).some(c=>re.test(c));
+ const dateArea=input=>{for(let p=input.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++)if(classToken(p,/^DateAreaV2_wrapper__/)&&p.querySelector('.anq-date-range-picker'))return p;return null;};
+ const stickyArea=p=>{let range=false,content=false;for(let q=p?.parentElement,n=0;q&&q!==document.body&&n<5;q=q.parentElement,n++){range||=classToken(q,/^StickyTabRangePicker_rangeWrap__/);content||=classToken(q,/^StickyTabRangePicker_content__/);}return range&&content;};
+ const originalArea=p=>{if(!p||route!==overview||stickyArea(p))return false;for(let q=p.parentElement,n=0;q&&q!==document.body&&n<4;q=q.parentElement,n++)if(classToken(q,/^OverviewHeaderV2_wrap__/))return true;return false;};
+ // A visible sticky copy is not another logical date range. Only pair the
+ // observed V2 structures with matching controls; never drop a generic input.
+ let dateMirrorEvidence=null,dateMirrorsReady=true,dateMirrorPending=false;
+ const areas=[...new Set(dateEvidence.map(e=>dateArea(e.input)).filter(Boolean))],originals=areas.filter(originalArea),mirrors=areas.filter(stickyArea);
+ if(route===overview&&mirrors.length){
+  const mainEntries=originals.length===1?dateEvidence.filter(e=>originals[0].contains(e.input)):[],copyEntries=mirrors.length===1?dateEvidence.filter(e=>mirrors[0].contains(e.input)):[];
+  const shape=originals.length===1&&mirrors.length===1&&mainEntries.length>0&&mainEntries.length<=2&&mainEntries.length===copyEntries.length&&![...mainEntries,...copyEntries].some(e=>['comparison','auxiliary'].includes(e.role));
+  const equal=shape&&JSON.stringify(mainEntries.map(e=>e.values))===JSON.stringify(copyEntries.map(e=>e.values));
+  const address=new URL(location.href),prior=globalThis.__xinyongtuBatchDate,owned=shape&&prior?.key?.startsWith(route+'|'+(address.searchParams.get('adId')||'account')+'|')&&prior.inputs?.length===mainEntries.length&&mainEntries.every(e=>prior.inputs.includes(e.input));
+  dateMirrorsReady=Boolean(equal);dateMirrorPending=Boolean(!equal&&owned);
+  dateMirrorEvidence={status:equal?'consistent':dateMirrorPending?'awaiting-sync':'conflict',originalGroups:originals.length,mirrorGroups:mirrors.length,primaryValues:mainEntries.map(e=>e.values),mirrorValues:copyEntries.map(e=>e.values)};
+  if(equal||dateMirrorPending)for(const e of copyEntries){e.role=dateMirrorPending?'primary-mirror-pending':'primary-mirror';e.source='sticky-report-date-mirror';}
+ }
+ // Recover only a unique primary group and keep comparison evidence separate.
  if(!dateEvidence.some(e=>e.role==='primary')){
   const unknown=dateEvidence.filter(e=>e.role==='unknown'),address=new URL(location.href);
-  const component=e=>{for(let p=e.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++){const classes=String(p.className).split(/\s+/);if(classes.some(c=>/^(?:Report)?DatePicker_(?:wrap|wrapper|container|root)(?:__|$)/.test(c)))return p;
-   if(route===overview&&classes.some(c=>/^DateAreaV2_wrapper__/.test(c))&&p.querySelector('.anq-date-range-picker'))for(let header=p.parentElement,depth=0;header&&header!==document.body&&depth<4;header=header.parentElement,depth++)if(String(header.className).split(/\s+/).some(c=>/^OverviewHeaderV2_wrap__/.test(c)))return p;
+  const component=e=>{const area=dateArea(e);for(let p=e.parentElement,n=0;p&&p!==document.body&&n<6;p=p.parentElement,n++){
+   if(classToken(p,/^(?:Report)?DatePicker_(?:wrap|wrapper|container|root)(?:__|$)/))return p;
+   if(p===area&&originalArea(p))return p;
   }return null;};
   const components=[...new Set(unknown.map(e=>component(e.input)).filter(Boolean))];
   if(unknown.length&&components.length===1&&unknown.every(e=>components[0].contains(e.input))&&unknown.length<=2&&dateEvidence.some(e=>e.role==='comparison')&&!dateEvidence.some(e=>e.role==='comparison'&&components[0].contains(e.input))){
@@ -91,18 +107,18 @@ export function batchReportDocument(command={action:'read'}){
  const mainControls=dateEvidence.filter(e=>e.role==='primary');
  const primary=mainControls.length?{inputs:mainControls.map(e=>e.input),values:mainControls.flatMap(e=>e.values)}:null;
  const dates=primary?[...new Set(primary.values)].sort():[];
- const primaryVerified=Boolean(primary)&&dates.length<=2&&dates.every(day)&&mainControls.every(e=>e.values.length>0)&&dates.length>0;
+ const primaryVerified=dateMirrorsReady&&Boolean(primary)&&dates.length<=2&&dates.every(day)&&mainControls.every(e=>e.values.length>0)&&dates.length>0;
  const url=new URL(location.href),adId=url.searchParams.get('adId'),ids=[...new Set([...(document.body.innerText||'').matchAll(/商品\s*ID\s*[:：]\s*(\d{6,20})/gi)].map(m=>m[1]))];
  if(command.action==='date-step'){
   // Date actions inspect only date controls/calendars. Data rows are read and
   // validated separately once the requested day has settled.
-  const diagnostics={calendar:[],dateControlStructure,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values}))};failureDiagnostic=diagnostics;
+  const diagnostics={calendar:[],dateControlStructure,dateMirrorEvidence,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values}))};failureDiagnostic=diagnostics;
   const context={route,origin:location.origin,dates,primaryVerified,adId,productId:route===unit&&ids.length===1?ids[0]:null,beginDate:url.searchParams.get('beginDate'),endDate:url.searchParams.get('endDate'),scenesMode:url.searchParams.get('scenesMode')};
   let parseMs=null,actionDurationMs=0;
   const act=fn=>{parseMs=performance.now()-started;const at=performance.now();fn();actionDurationMs+=performance.now()-at;};
   const response=extra=>({protocol,action:command.action,context,diagnostics,performance:{durationMs:Math.round(parseMs??performance.now()-started),actionDurationMs:Math.round(actionDurationMs)},...extra});
   const start=command.start,end=command.end||start;
-  if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
+  if(!day(start)||!day(end)||start>end)throw Error('统计日期无效');if(dateMirrorPending)return response({kind:'date-mirror-awaiting-sync'});if(!primaryVerified)throw Error('未确认主统计日期控件，未操作对比日期');
   const key=route+'|'+(adId||'account')+'|'+start+'|'+end;
   let state=globalThis.__xinyongtuBatchDate;
   if(command.reset||!state||state.key!==key)state=globalThis.__xinyongtuBatchDate={key,inputs:[...primary.inputs],phase:'start',opened:false,openAttempts:0,steps:0};
@@ -242,7 +258,7 @@ export function batchReportDocument(command={action:'read'}){
  for(const e of document.querySelectorAll('thead tr,[role="row"],[class*="table-header"],[class*="TableHeader"]'))if(shown(e)&&!(/商品\s*ID/.test(text(e)))){
   const cells=[...e.querySelectorAll('th,[role="columnheader"]')].filter(c=>!/(?:^|\s)(?:anq|ant|rc)-table-cell-scrollbar(?:\s|$)/.test(String(c.className)));if(cells.length<2)continue;headerGroups.push({e,cells,labels:cells.map(c=>canonicalLabel(norm(text(c)).replace(/[▲▼↑↓↕]/g,'')))});
  }
- const diagnostics={route,dateControlStructure,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
+ const diagnostics={route,dateControlStructure,dateMirrorEvidence,dateControlCount:datedInputs.length,primaryDates:dates,dateEvidence:dateEvidence.map(({role,source,values})=>({role,source,values})),selectedMode,headerGroups:headerGroups.map(g=>g.labels),headerStructure:headerGroups.map(g=>({columns:g.cells.length,rawCells:[...g.e.querySelectorAll('th,[role="columnheader"]')].map(c=>({className:String(c.className).slice(0,100),colSpan:c.colSpan||1}))})),calendar:[],missing:[]};
  const computeFieldsFor=row=>{
   const table=row.closest('table,[role="table"],[role="grid"]'),own=table&&headerGroups.find(g=>table.contains(g.e));
   const cells=[...row.children].filter(c=>['TD','TH'].includes(c.tagName)||['cell','gridcell'].includes(c.getAttribute('role')));

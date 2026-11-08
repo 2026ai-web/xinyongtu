@@ -114,3 +114,5 @@ status=voided保留原内容、voidedAt及voidReason，不删除、不用于效�
 0.12.27主日期补充：紧凑两快捷项仅接受精确“今日昨日/今天昨天”局部内容；命名报表日期组件恢复还需唯一组、无对比输入混入、至少独立对比证据及初次DOM/URL起止日期对应。不能将未知普通输入或URL独立视为主日期。已确认选日状态只对同输入引用/路由和推广身份复用，避免地址更新稍迟导致身份丢失；最终日期和受控URL校验仍保持。dateControlStructure仅在有未知角色时记录有限结构用于诊断，不推断金额或主日期。
 
 0.12.28主日期组件白名单增加实际报告30组合：仅overview、DateAreaV2_wrapper下存在anq-date-range-picker且4层内父级为OverviewHeaderV2_wrap。识别仍进入27的唯一性、独立对比、初次DOM/URL起止对应等检查，不独立绕过校验；哈希后缀不硬编码。
+
+0.12.29吸顶副本：只处理overview上唯一原OverviewHeaderV2/DateAreaV2及StickyTabRangePicker_rangeWrap/content内唯一同结构DateAreaV2。值/输入数完全一致才标primary-mirror，不加入primary.inputs。初态分歧或不唯一则primaryVerified=false；仅已证明的自有选日过程可标primary-mirror-pending等待同步，依旧不可保存。dateMirrorEvidence为consistent/awaiting-sync/conflict，列主副日期和组数。原控制器120步上限保持，pending不丢首次reset。
